@@ -6,11 +6,11 @@ from bokeh.plotting import figure
 
 # per-step accent colors: panel tint background and saturated accent color
 _STEP_COLORS: dict[str, tuple[str, str]] = {
-    "setup": ("#e8f0fe", "#1a73e8"),
-    "eigenvalues": ("#e6f4ea", "#188038"),
-    "spectrum": ("#fef7e0", "#b06000"),
-    "modes": ("#f3e8fd", "#8430ce"),
-    "reconstruction": ("#fce8e6", "#c5221f"),
+    "setup": ("#f0f5ff", "#1a73e8"),
+    "eigenvalues": ("#eef7f0", "#188038"),
+    "spectrum": ("#fffaef", "#b06000"),
+    "modes": ("#f7f0fc", "#8430ce"),
+    "reconstruction": ("#fdf1ef", "#c5221f"),
 }
 
 _TEXT_MUTED = "#5f6368"
@@ -18,10 +18,10 @@ _GRID = "#dadce0"
 
 _TAB_CSS = """
     :host { background: #ffffff; }
-    .bk-headers { padding: 6px 4px; }
+    .bk-headers { padding: 8px 4px; }
     .bk-tab { background: #f1f3f4; color: #5f6368; border: none;
-              border-radius: 6px; margin: 3px 4px; padding: 8px 14px;
-              font-weight: 500; }
+              border-radius: 6px; margin: 4px 5px; padding: 9px 16px;
+              font-weight: 500; font-size: 13px; }
     .bk-tab:hover { background: #e8eaed; color: #202124; }
     .bk-active { background: #1a73e8; color: #ffffff; }
 """

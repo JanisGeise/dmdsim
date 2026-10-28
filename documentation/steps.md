@@ -87,6 +87,20 @@ modules change.
 - Setup panel reorganized with clear section headers: Modal components, Grid &
   noise, DMD fit, Signal preview.
 
+## M2.5 — vision-based GUI polish (2026-10-28)
+
+- Method: headless screenshots of all five tabs (Playwright in a throwaway venv,
+  scripts untracked in `run/`) reviewed with a vision model, two review rounds.
+- Round 1 findings: Setup tab was a "wall of controls" (blocking), tab labels too
+  small, tints slightly garish, Reconstruction selection controls disconnected
+  from the plots.
+- Fixes: two-column Setup (controls beside the signal preview), numbered tab
+  titles ("1 · Setup" ... "5 · Reconstruction"), softened panel tints, larger tab
+  labels, "Time & mode selection" header in the Reconstruction panel.
+- Round 2 verdict: acceptable to show; final polish applied (more air between the
+  mode editor rows, extra gap before the mode selection checkboxes).
+- README now states transparently that the project is vibe coded.
+
 ## M2.4 — modern styling with per-step accent colors (2026-10-28)
 
 - User feedback: the GUI should look more modern and the panels should be

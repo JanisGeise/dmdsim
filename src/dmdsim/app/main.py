@@ -138,6 +138,8 @@ class DMDPlayground:
                                    width=300)
         self._play_toggle = Toggle(label="▶ play", active=False, width=100)
         self._mode_select = CheckboxGroup(labels=[], active=[], inline=True)
+        # a little extra air below the play/slider row improves the grouping
+        self._mode_select.styles = {"margin-top": "6px"}
         self._readout_div = info_box()
 
     def _build_figures(self) -> None:
@@ -167,8 +169,10 @@ class DMDPlayground:
         """
         Arrange the widgets and figures into a tabbed layout with one panel per step.
 
-        The tab headers act as a left sidebar; every panel keeps its state while
-        another panel is shown, so interactions survive switching between steps.
+        The tab headers act as a left sidebar with numbered workflow steps; every
+        panel keeps its state while another panel is shown. The Setup panel uses
+        a two-column arrangement (controls beside the signal preview) to keep the
+        panel compact.
 
         :return: None
         :rtype: None
@@ -177,9 +181,9 @@ class DMDPlayground:
         mode_rows = [row(self._mode_toggles[i], self._wavenumber_spinners[i],
                          self._frequency_spinners[i], self._amplitude_spinners[i],
                          self._growth_spinners[i]) for i in range(_MAX_MODE_EDITORS)]
-        setup_panel = column(
+        controls = column(
             header("Modal components", "setup"),
-            *mode_rows,
+            column(*mode_rows, spacing=12),
             header("Grid &amp; noise", "setup"),
             row(self._dt_spinner, self._dx_spinner, self._n_space_spinner,
                 self._n_time_spinner),
@@ -187,31 +191,35 @@ class DMDPlayground:
             header("DMD fit", "setup"),
             row(self._rank_spinner, self._auto_toggle, self._run_button),
             self._status_div,
+            spacing=10,
+        )
+        preview = column(
             header("Signal preview", "setup"),
             self._preview_figure,
             hint(_HINT_PREVIEW),
-            width=1000,
             spacing=8,
         )
+        setup_panel = row(controls, preview, spacing=14)
         eigen_panel = column(self._eigenvalue_figure, hint(_HINT_EIGENVALUES, width=620),
-                             spacing=8)
+                             spacing=10)
         spectrum_panel = column(self._spectrum_figure, hint(_HINT_SPECTRUM, width=620),
-                                spacing=8)
+                                spacing=10)
         mode_panel = column(self._mode_slider, self._mode_figure,
-                            hint(_HINT_MODE, width=1000), spacing=8)
+                            hint(_HINT_MODE, width=1000), spacing=10)
         time_panel = column(
+            header("Time &amp; mode selection", "reconstruction"),
             row(self._time_slider, self._play_toggle),
             self._mode_select,
             row(self._heatmap_figure, self._time_figure),
             row(hint(_HINT_TIME, width=500), self._readout_div),
-            spacing=8,
+            spacing=10,
         )
         tabs = Tabs(tabs=[
-            TabPanel(child=setup_panel, title="Setup"),
-            TabPanel(child=eigen_panel, title="Eigenvalues"),
-            TabPanel(child=spectrum_panel, title="Spectrum"),
-            TabPanel(child=mode_panel, title="Mode shapes"),
-            TabPanel(child=time_panel, title="Reconstruction"),
+            TabPanel(child=setup_panel, title="1 · Setup"),
+            TabPanel(child=eigen_panel, title="2 · Eigenvalues"),
+            TabPanel(child=spectrum_panel, title="3 · Spectrum"),
+            TabPanel(child=mode_panel, title="4 · Mode shapes"),
+            TabPanel(child=time_panel, title="5 · Reconstruction"),
         ], tabs_location="left", stylesheets=[tab_stylesheet()])
         self._doc.add_root(tabs)
 

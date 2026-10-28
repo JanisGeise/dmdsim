@@ -110,11 +110,12 @@ silences flowTorch's INFO logging at import time.
     status info box, mode/time sliders, play toggle, mode checkbox group, readout
     info box.
   - `_build_layout`: `Tabs(tabs_location="left")` with one `TabPanel` per step —
-    "Setup" (modal components, grid & noise, DMD fit, status, live signal
-    preview), "Eigenvalues", "Spectrum", "Mode shapes", "Reconstruction". All
-    panels stay alive while hidden. Figures are color-coded per step and section
-    headers/hints/info boxes come from `styling.py`; the tab strip carries a
-    custom stylesheet.
+    "1 · Setup" (two-column: modal components, grid & noise, DMD fit, status on
+    the left; live signal preview on the right), "2 · Eigenvalues", "3 ·
+    Spectrum", "4 · Mode shapes", "5 · Reconstruction" (with a selection header).
+    All panels stay alive while hidden. Figures are color-coded per step and
+    section headers/hints/info boxes come from `styling.py`; the tab strip
+    carries a custom stylesheet.
   - `_attach_callbacks`: parameter widgets → `_on_parameter_change` (refit on
     auto-rerun, otherwise mark stale); Run button → `_run_dmd`; sliders/checkbox →
     `_on_view_change` (view refresh without refit); play toggle → periodic

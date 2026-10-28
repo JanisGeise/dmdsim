@@ -1,5 +1,10 @@
 # dmdsim — DMD Playground
 
+For transparency:
+
+> **Note:** This project is vibe coded — it is developed end-to-end in an
+> AI-assisted workflow (human direction and review, AI implementation).
+
 Interactive playground for building synthetic modal line fields, decomposing them
 with Dynamic Mode Decomposition (DMD), and visually exploring all DMD quantities
 (eigenvalues, mode shapes, amplitudes, time dynamics, reconstructions).
