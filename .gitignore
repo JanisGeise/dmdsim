@@ -5,3 +5,4 @@ __pycache__/
 run/
 .coverage
 examples/
+.idea/
