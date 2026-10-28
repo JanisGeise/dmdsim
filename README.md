@@ -15,8 +15,9 @@ with Dynamic Mode Decomposition (DMD), and visually exploring all DMD quantities
 All DMD computations are handled by
 [flowTorch](https://github.com/FlowModelingControl/flowtorch), installed editable
 from the local repository `../flowtorch`; the `dmdsim.core.engine` module is the
-single wrapper around it. A Bokeh web GUI ("DMD Playground") is planned; currently
-the utility is used as a Python library (see *Usage* below).
+single wrapper around it. The Bokeh web GUI ("DMD Playground") is the main
+interface (see *Run the GUI* below); the core library remains usable from
+scripts and notebooks (see *Usage* below).
 
 ## Setup
 
@@ -122,6 +123,8 @@ implementation step: `architecture.md` (layers, data flow, design decisions),
 
 ## Roadmap
 
-See `PLAN.md` for the full roadmap and status. Currently implemented: core
-library (M1). Next: Bokeh GUI v1 (M2), interactive eigenvalue dragging (M3),
-2D OpenFOAM support via flowTorch (M5, deferred).
+See `PLAN.md` for the full roadmap and status. Core library (M1) and the Bokeh
+GUI (M2) are implemented — the project is currently in the **GUI revise phase**
+(panel-by-panel polish driven by user feedback and vision-based screenshot
+reviews). Next: interactive eigenvalue dragging (M3), 2D OpenFOAM support via
+flowTorch (M5, deferred).

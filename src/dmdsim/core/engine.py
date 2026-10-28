@@ -31,7 +31,8 @@ def fit_dmd(samples: np.ndarray, dt: float, rank: int | None = None, optimal: bo
     :param tlsq: de-bias the linear operator by solving a total least-squares
         problem instead of a standard least-squares problem, defaults to False
     :type tlsq: bool, optional
-    :return: DMD quantities with the flowTorch tensors converted to numpy arrays
+    :return: DMD quantities with the flowTorch tensors converted to numpy arrays,
+        including the flowTorch integral contribution of each mode
     :rtype: DMDResult
     """
     assert samples.ndim == 2, (
@@ -48,6 +49,7 @@ def fit_dmd(samples: np.ndarray, dt: float, rank: int | None = None, optimal: bo
         amplitudes=amplitudes.numpy(),
         eigvals=dmd.eigvals.numpy(),
         dt=dt,
+        integral_contribution=dmd.integral_contribution.numpy(),
     )
 
 

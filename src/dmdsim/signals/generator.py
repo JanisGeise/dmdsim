@@ -64,6 +64,54 @@ class Mode:
                 f"amplitude={self.amplitude}, growth_rate={self.growth_rate}, phase={self.phase})")
 
 
+def generate_modes(n_modes: int, f_min: float, f_max: float, seed: int | None = None,
+                   phase_speed: float = 10.0) -> list[Mode]:
+    """
+    Create a reproducible random modal composition for the signal generator.
+
+    The frequencies are evenly spaced between ``f_min`` and ``f_max`` so the DMD
+    spectrum of the generated signal stays predictable. Every wavenumber follows
+    the dispersion relation :math:`\\kappa = 2\\pi f / c` with the shared phase
+    speed :math:`c`, so all waves travel in :math:`+s` direction with the same
+    velocity. Amplitudes, growth rates, and phases are drawn from a seeded random
+    generator, making the composition reproducible for identical arguments.
+
+    :param n_modes: number of modes to generate
+    :type n_modes: int
+    :param f_min: lower frequency bound in hertz
+    :type f_min: float
+    :param f_max: upper frequency bound in hertz
+    :type f_max: float
+    :param seed: seed for the random amplitudes, growth rates, and phases;
+        ``None`` uses nondeterministic seeding, defaults to None
+    :type seed: int | None, optional
+    :param phase_speed: phase speed :math:`c` of all waves in units per second;
+        the default keeps even the highest frequencies well resolved on the
+        default grid, defaults to 10.0
+    :type phase_speed: float, optional
+    :return: list of generated modes
+    :rtype: list[Mode]
+    """
+    assert n_modes >= 1, f"The number of modes must be at least 1, got: {n_modes}"
+    assert 0.0 <= f_min <= f_max, (
+        f"The frequency bounds must satisfy 0 <= f_min <= f_max, got: {f_min}, {f_max}")
+    assert phase_speed > 0.0, f"The phase speed must be positive, got: {phase_speed}"
+    rng = np.random.default_rng(seed)
+    # evenly spaced frequencies keep the modal content predictable
+    if n_modes == 1:
+        frequencies = np.array([0.5 * (f_min + f_max)])
+    else:
+        frequencies = np.linspace(f_min, f_max, n_modes)
+    modes = []
+    for frequency in frequencies:
+        modes.append(Mode(wavenumber=2.0 * np.pi * frequency / phase_speed,
+                          frequency=float(frequency),
+                          amplitude=float(rng.uniform(0.5, 1.5)),
+                          growth_rate=float(rng.uniform(-0.5, 0.5)),
+                          phase=float(rng.uniform(0.0, 2.0 * np.pi))))
+    return modes
+
+
 class ModalSignal:
     def __init__(self, modes: list[Mode], dt: float, n_space: int, n_time: int, dx: float = 1.0,
                  offset: float = 0.0, noise_std: float = 0.0, seed: int | None = None) -> None:

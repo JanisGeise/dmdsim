@@ -16,6 +16,10 @@ _STEP_COLORS: dict[str, tuple[str, str]] = {
 _TEXT_MUTED = "#5f6368"
 _GRID = "#dadce0"
 
+# categorical colors for conjugate eigenvalue pairs (one color per physical mode)
+PAIR_PALETTE = ["#1a73e8", "#c5221f", "#188038", "#8430ce", "#b06000",
+                "#0b8043", "#a142f4", "#f4511e", "#039be5", "#c2185b"]
+
 _TAB_CSS = """
     :host { background: #ffffff; }
     .bk-headers { padding: 8px 4px; display: flex; flex-direction: @DIRECTION;
@@ -120,12 +124,14 @@ def hint(text: str, width: int | None = None) -> Div:
     return div
 
 
-def info_box(text: str = "") -> Div:
+def info_box(text: str = "", font_size: str = "12px") -> Div:
     """
     Create a neutral info box for dynamic status or readout text.
 
     :param text: initial content of the box (HTML), defaults to ""
     :type text: str, optional
+    :param font_size: font size of the box text, defaults to ``"12px"``
+    :type font_size: str, optional
     :return: styled info box element
     :rtype: Div
     """
@@ -135,7 +141,7 @@ def info_box(text: str = "") -> Div:
         "border-radius": "6px",
         "padding": "6px 10px",
         "color": "#202124",
-        "font-size": "12px",
+        "font-size": font_size,
     })
 
 

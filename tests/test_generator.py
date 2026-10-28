@@ -4,7 +4,7 @@
 import pytest
 import numpy as np
 
-from dmdsim.signals.generator import Mode, ModalSignal
+from dmdsim.signals.generator import Mode, ModalSignal, generate_modes
 
 
 def test_samples_shape() -> None:
@@ -65,6 +65,30 @@ def test_noise_determinism() -> None:
     assert not np.array_equal(first.samples, third.samples)
 
 
+def test_generate_modes() -> None:
+    """
+    Check the automatic modal composition helper.
+
+    :return: None
+    :rtype: None
+    """
+    first = generate_modes(3, 1.0, 10.0, seed=42)
+    second = generate_modes(3, 1.0, 10.0, seed=42)
+    third = generate_modes(3, 1.0, 10.0, seed=43)
+    # identical seeds reproduce the composition, different seeds do not
+    assert [(m.frequency, m.amplitude) for m in first] == [(m.frequency, m.amplitude) for m in second]
+    assert first[0].amplitude != third[0].amplitude
+    # frequencies are evenly spaced within the bounds
+    frequencies = [m.frequency for m in first]
+    assert np.allclose(frequencies, np.linspace(1.0, 10.0, 3))
+    # wavenumbers follow the dispersion relation with the shared phase speed
+    assert np.allclose([m.wavenumber for m in first],
+                       2.0 * np.pi * np.array(frequencies) / 10.0)
+    # single mode sits at the center of the bounds
+    single = generate_modes(1, 2.0, 6.0, seed=1)
+    assert np.isclose(single[0].frequency, 4.0)
+
+
 def test_invalid_parameters() -> None:
     """
     Check that invalid signal and mode parameters are rejected.
@@ -82,6 +106,10 @@ def test_invalid_parameters() -> None:
         Mode(wavenumber=1.0, frequency=1.0, amplitude=-0.5)
     with pytest.raises(AssertionError):
         Mode(wavenumber=float("nan"), frequency=1.0)
+    with pytest.raises(AssertionError):
+        generate_modes(0, 1.0, 10.0)
+    with pytest.raises(AssertionError):
+        generate_modes(2, 5.0, 1.0)
 
 
 if __name__ == "__main__":

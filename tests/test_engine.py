@@ -5,6 +5,7 @@ import pytest
 import numpy as np
 
 from dmdsim.core.engine import fit_dmd
+from dmdsim.core.synth import synthesize
 from dmdsim.signals.generator import Mode, ModalSignal
 
 
@@ -83,6 +84,34 @@ def test_conjugate_pair_detection() -> None:
     assert len(unpaired) == 1
     # the unpaired mode is the constant one with vanishing frequency
     assert np.allclose(np.abs(result.frequencies[list(unpaired)]), 0.0, atol=1e-8)
+
+
+def test_sort_modes() -> None:
+    """
+    Check the sorting criteria of the DMD result container.
+
+    :return: None
+    :rtype: None
+    """
+    signal = _modal_signal()
+    result = fit_dmd(signal.samples, dt=0.01, rank=5)
+    # flowTorch integral contributions (Kou et al., 2017) are available and positive
+    assert result.integral_contribution is not None
+    assert np.all(result.integral_contribution > 0.0)
+    # amplitude sorting: descending |b|
+    result.sort(by="amplitude")
+    assert np.all(np.diff(np.abs(result.amplitudes)) <= 1e-12)
+    # integral sorting: descending flowTorch integral contribution
+    result.sort(by="integral")
+    assert np.all(np.diff(result.integral_contribution) <= 1e-12)
+    # frequency sorting: ascending |f|, the constant mode comes first
+    result.sort(by="frequency")
+    assert np.all(np.diff(np.abs(result.frequencies)) >= -1e-12)
+    assert np.allclose(np.abs(result.frequencies[0]), 0.0, atol=1e-8)
+    # sorting must not change the reconstruction (sum over all modes)
+    rebuilt = synthesize(result.modes, result.amplitudes, result.eigvals, dt=0.01,
+                         n_time=signal.n_time)
+    assert np.allclose(rebuilt, signal.samples, rtol=1e-6, atol=1e-8)
 
 
 def test_invalid_input() -> None:

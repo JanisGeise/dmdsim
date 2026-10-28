@@ -6,3 +6,4 @@ run/
 .coverage
 examples/
 .idea/
+PLAN.md

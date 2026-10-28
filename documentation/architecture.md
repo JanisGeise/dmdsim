@@ -95,7 +95,8 @@ Editing semantics (used by the GUI and available in the core):
 
 ## Roadmap position
 
-See `PLAN.md` for milestones. M0 (setup) and M1 (core) are done, M2 (GUI v1) is
-done including the sidebar layout; next is M3 (interactive eigenvalue dragging),
-then an improvement round (M4) driven by hands-on feedback, and 2D OpenFOAM data
-(M5) later.
+See `PLAN.md` for milestones. M0 (setup), M1 (core) and M2 (GUI) are done; the
+project is currently in the **GUI revise phase** — panel-by-panel iteration on
+user feedback with vision-based screenshot reviews (M2.1–M2.9). The next
+milestone after the revision is M3 (interactive eigenvalue dragging), followed
+by an improvement round (M4) and 2D OpenFOAM data (M5) later.

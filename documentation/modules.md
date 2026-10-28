@@ -20,6 +20,12 @@ Synthetic modal line fields on a uniform space-time grid.
   Gaussian noise) once at construction; `samples` is the real-valued field with
   shape `(n_space, n_time)`, one snapshot per column. Properties `space` and
   `time` return the grids.
+- `generate_modes(n_modes, f_min, f_max, seed=None, phase_speed=10.0)` — automatic
+  modal composition for the GUI: evenly spaced frequencies within the bounds
+  (predictable DMD spectrum), dispersion-tied wavenumbers
+  :math:`\kappa = 2\pi f / c` (all waves share the phase speed and travel in
+  :math:`+s`), seeded random amplitudes (0.5–1.5), growth rates (±0.5), and
+  phases. Reproducible for identical arguments.
 
 ## `src/dmdsim/core/engine.py`
 
@@ -37,12 +43,18 @@ The single wrapper around flowTorch.
   and synthesis need; stores complex numpy arrays (complex128) and validates
   shapes/dt in `_check_dimensions`.
   - attributes: `modes` `(n_space, n_modes)`, `amplitudes` `(n_modes,)`,
-    `eigvals` `(n_modes,)`, `dt`
+    `eigvals` `(n_modes,)`, `integral_contribution` `(n_modes,)` (Kou et al.
+    2017 numbers provided by flowTorch, required for the ``"integral"`` sort),
+    `dt`
   - properties: `n_modes`, `n_space`, `frequencies` (= Im(log λ)/(2π·dt), Nyquist
     bounded via principal log branch), `growth_rates` (= Re(log λ)/dt), `pairs`
     (conjugate pair index tuples, detected from the *current* values — cache it
     before editing)
   - method: `mode(index)` returns the complex shape `φ_i` `(n_space,)`
+  - method: `sort(by)` reorders all stored quantities in place; criteria follow
+    flowTorch: ``"amplitude"`` (descending |b|), ``"integral"`` (descending
+    flowTorch integral contribution), ``"frequency"`` (ascending |f|); the
+    reconstruction (sum over all modes) is invariant under sorting
 - `_PAIR_TOL = 1e-8` — relative tolerance of the pair detection (eigenvalues,
   amplitudes, and mode shapes must all be conjugate).
 
@@ -63,18 +75,36 @@ the figure plus the data source (and extras where needed):
 
 - `create_eigenvalue_figure()` — eigenvalue scatter, unit circle, hover with mode
   index/λ/f/σ; 620×560.
-- `create_spectrum_figure()` — stem-style |b| over frequency with hover; the x
-  range is set to ±Nyquist by the app; 620×560.
+- `create_spectrum_figure()` — stem-style DMD spectrum of the mode amplitudes
+  over frequency; stems and markers carry per-point stability colors (red
+  growing, blue decaying, gray neutral) and selection emphasis via the
+  ``color``/``width``/``size`` columns; dashed Nyquist spans are returned for
+  the app to place; source columns ``frequency``, ``amplitude``, ``index``,
+  ``growth``, ``color``, ``width``, ``size``; returns
+  `(figure, source, nyquist_spans)`; 620×560.
 - `create_mode_component_figure(quantity)` — single-quantity mode shape figure;
-  ``quantity`` is one of ``real``, ``imag``, ``phase`` (plain views) or
-  ``direction`` (phase view titled for the propagation analysis); phase-like
-  views have a fixed ±π y-range; source columns ``s`` and ``value``; 1000×420.
-- `create_field_heatmap(show_cursor=True, title="field x(s, t)")` — `image` glyph of
-  `x(s, t)` with shared `LinearColorMapper` (RdBu, symmetric limits) and an
-  optional `Span` as time cursor (`show_cursor=False` for the static signal
-  preview); returns `(figure, source, mapper, span)`; 500×380.
-- `create_time_curves_figure()` — original, reconstruction, Σ selected modes, and
-  selected mode at the current time; 500×380.
+  ``quantity`` is one of ``real``, ``imag``, or ``phase``; the phase view renders
+  the unwrapped phase as a line plus the wrapped ±π values as faded points;
+  source columns ``s``, ``value``, and ``unwrapped``; 1000×420.
+- `create_direction_figure()` — traveling-wave view of the selected mode with a
+  direction arrow annotation (bokeh `Arrow` + `NormalHead`); source columns
+  ``s`` and ``value``; returns `(figure, source, arrow)`; 1000×420.
+- `create_mode_dynamics_figure()` — complex-plane animation of the selected
+  mode's eigenvalue powers λᵗ (t starting at 1, i.e., at the eigenvalue itself):
+  dashed unit circle, faded pair-colored markers for all eigenvalues, trail
+  up to the current time and hoverable current-point marker; the trail color is
+  set by the application (pair color of the selected eigenvalue); returns
+  `(figure, trail_source, point_source, all_source, trail_renderer)`; 620×560,
+  ranges set by the app to match the eigenvalue plane.
+- `create_signal_curve_figure()` — 1D line view of the signal x(s) at the current
+  animation time on the fixed unit window; source columns ``s`` and ``value``;
+  500×380 (y-range fixed by the app).
+- `create_time_curves_figure()` — time view with the field along space at the
+  current time: original (black), reconstruction (gray dashed), Σ selected
+  (gray dash-dot), selected eigenvalue contribution (thicker, pair color set by
+  the app via the returned renderer), and thin per-eigenvalue contribution
+  lines in pair colors (`MultiLine` + hover) for all checked eigenvalues;
+  returns `(figure, source, pair_source, selected_renderer)`; 500×380.
 
 Expected source columns are documented in each docstring; the app fills them in
 `_update_*` methods.
@@ -92,12 +122,28 @@ per step for visual distinction):
   applied when the figure actually has legends).
 - `header(text, step)` — colored section header element for panels.
 - `hint(text, width=None)` — muted inline explanation block.
-- `info_box(text="")` — neutral box for dynamic status/readout text.
+- `info_box(text="", font_size="12px")` — neutral box for dynamic status/readout
+  text.
 - `tab_stylesheet(accent="#1a73e8", vertical=True)` — `InlineStyleSheet` for a tab
   strip (rounded buttons, hover state, accent-colored active tab); vertical
   strips get uniformly wide, left-aligned buttons (main sidebar), horizontal
   strips compact buttons (nested submenus); uses the `.bk-tab`/`.bk-active`
   classes.
+
+.. note:: Spinner tooltip mechanics
+    Widget `description` must be a `bokeh.models.Tooltip` instance to render the
+    interactive popover; a plain string only sets the native browser `title`
+    attribute (long hover delay, no click). The `?` tooltips are built via the
+    `_spinner` helper in `app/main.py`, which composes the explanation and the
+    allowed range from the actual widget bounds.
+
+.. note:: Spinner typed-value and math limitations (bokeh 3.10)
+    `SpinnerView.bound_value` silently discards typed values outside the declared
+    bounds (returns the old value instead of clamping), and the numeric input
+    filter rejects decimal commas (typing "2,5" reverts the comma, yielding
+    "25") — type decimal points. MathText (LaTeX) is only supported in canvas
+    text (plot titles, axis labels); widget titles are plain text, so they use
+    Unicode subscripts (fₘᵢₙ, Δt, σₙₒᵢₛₑ).
 
 ## `src/dmdsim/app/main.py`
 
@@ -110,15 +156,16 @@ silences flowTorch's INFO logging at import time.
   `_HINT_*` inline explanations (per panel and per mode quantity).
 - `DMDPlayground(doc)` — builds widgets, figures, layout, callbacks and runs the
   initial fit:
-  - `_build_widgets`: per-mode editors (toggle + κ/f/A/σ spinners), grid/offset/
-    noise widgets, rank (0 = automatic), auto-rerun toggle, styled Run button,
-    status info box, shared mode slider, TWO synchronized time sliders and play
-    toggles (signal animation in the start menu, reconstruction view), mode
-    checkbox group, readout and propagation-direction info boxes.
+  - `_build_widgets`: automatic-composition spinners (Nₘ, f_min, f_max, offset),
+    grid/offset/noise widgets, rank (0 = automatic), auto-rerun toggle, styled Run
+    button, status info box, shared mode slider, TWO synchronized time sliders in
+    **seconds** ("t [s]", range [0, (n_time − 1)·dt], step = Δt) and play toggles
+    (signal animation in the start menu, reconstruction view), mode checkbox
+    group, readout and propagation-direction info boxes.
   - `_build_layout`: `Tabs(tabs_location="left")` with one `TabPanel` per step —
-    "1 · Signal" (start menu: modal components + grid & noise on the left,
-    signal animation with cursor/slider/play on the right, DMD fit + status
-    below), "2 · Eigenvalues", "3 · Spectrum", "4 · Mode shapes" (nested
+    "1 · Signal" (start menu: modal composition + grid & noise on the left,
+    1D signal animation with slider/play on the right, DMD fit + status below),
+    "2 · Eigenvalues", "3 · Spectrum", "4 · Mode shapes" (nested
     horizontal sub-tabs: Real part / Imaginary part / Phase / Propagation
     direction, sharing the mode slider), "5 · Reconstruction". All panels stay
     alive while hidden. Figures are color-coded per step; the main sidebar and
@@ -129,19 +176,26 @@ silences flowTorch's INFO logging at import time.
     → `_on_time_change` (two-way sync + time view refresh); both play toggles →
     `_on_recon_play`/`_on_signal_play` → `_set_playback` (synced labels/states,
     one shared periodic callback advancing the time).
-  - `_run_dmd`: `_build_signal` → `fit_dmd` → cache reconstruction → update all
-    views, slider/checkbox bounds, and the status line (mode count + round-trip
-    error).
+  - `_run_dmd`: `_build_signal` (uses `generate_modes`) → rank resolution (0 =
+    automatic: exact rank 2·n_modes (+1 with offset) of the clean composition;
+    flowTorch optimal truncation when noise is on) → `fit_dmd` wrapped in
+    try/except (`AssertionError`, `IndexError`, `RuntimeError`, `ValueError`) so
+    `torch.linalg` failures land as a red message in the status box while the
+    previous views stay → cache reconstruction → update all views, slider/
+    checkbox bounds, and the info box (rank automatic + round-trip error when
+    automatic, otherwise only the error).
   - `_mode_field(index, t_index)`: real contribution of one mode at one time level
     (`Re{φᵢ·bᵢ·λᵢᵗ}`) used by the time view.
   - `_update_*` methods: `_update_field_view` (signal animation heatmap + time
-    view heatmap, color limits, slider bounds), `_update_quantities` (eigenvalues,
-    spectrum, axis ranges), `_update_mode_slider`/`_update_time_slider` (bounds +
-    clamping of both sliders), `_update_mode_view` (fills the four single-quantity
-    mode sources), `_update_direction_readout` (phase slope κ → wavelength, phase
-    velocity, travel direction with arrow), `_update_mode_select` (resets
-    selection before relabeling to avoid stale indices), `_update_time_view`
-    (both time cursors + curves), `_update_readout`.
+    view heatmap, color limits, slider bounds), `_update_quantities` (eigenvalue
+    plane + dynamics contexts and ranges), `_update_spectrum` (stability colors,
+    selection emphasis, Nyquist spans and axis), `_update_mode_slider`/
+    `_update_time_slider` (bounds + clamping of both sliders), `_update_mode_view`
+    (fills the four single-quantity mode sources), `_update_direction_readout`
+    (phase slope κ → wavelength, phase velocity, travel direction with arrow),
+    `_update_mode_select` (resets selection before relabeling to avoid stale
+    indices), `_update_time_view` (both time cursors + curves + λᵗ trail),
+    `_update_readout`.
   - `_on_time_change` / `_set_playback` / `_advance_time`: two-way slider sync
     with a re-entrancy guard and one shared animation via
     `Document.add_periodic_callback` (the returned token is kept for removal).

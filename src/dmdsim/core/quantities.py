@@ -8,7 +8,7 @@ _PAIR_TOL = 1e-8
 
 class DMDResult:
     def __init__(self, modes: np.ndarray, amplitudes: np.ndarray, eigvals: np.ndarray,
-                 dt: float) -> None:
+                 dt: float, integral_contribution: np.ndarray | None = None) -> None:
         """
         Implement a class for holding and analyzing the quantities of a DMD fit.
 
@@ -27,12 +27,18 @@ class DMDResult:
         :type eigvals: np.ndarray
         :param dt: time step between two snapshots used in the DMD fit
         :type dt: float
+        :param integral_contribution: integral contribution of each mode according to
+            Kou et al. (2017) as provided by flowTorch; required for sorting by the
+            ``"integral"`` criterion, defaults to None
+        :type integral_contribution: np.ndarray | None, optional
         :return: None
         :rtype: None
         """
         self.modes = np.asarray(modes, dtype=np.complex128)
         self.amplitudes = np.asarray(amplitudes, dtype=np.complex128)
         self.eigvals = np.asarray(eigvals, dtype=np.complex128)
+        self.integral_contribution = (None if integral_contribution is None
+                                      else np.asarray(integral_contribution, dtype=np.float64))
         self.dt = dt
         self._check_dimensions()
 
@@ -50,6 +56,10 @@ class DMDResult:
             f"The amplitudes must have shape ({n_modes},), got: {self.amplitudes.shape}")
         assert self.eigvals.shape == (n_modes,), (
             f"The eigenvalues must have shape ({n_modes},), got: {self.eigvals.shape}")
+        if self.integral_contribution is not None:
+            assert self.integral_contribution.shape == (n_modes,), (
+                f"The integral contributions must have shape ({n_modes},), "
+                f"got: {self.integral_contribution.shape}")
         assert self.dt > 0.0, f"The time step must be positive, got: {self.dt}"
 
     def _is_conjugate_pair(self, i: int, j: int) -> bool:
@@ -72,6 +82,48 @@ class DMDResult:
         mode_match = float(np.abs(self.modes[:, i] - np.conj(self.modes[:, j])).max()) \
             <= _PAIR_TOL * mode_scale
         return bool(eig_match and amp_match and mode_match)
+
+    def sort(self, by: str) -> None:
+        """
+        Reorder the modes in place according to a sorting criterion.
+
+        Sorting only rearranges the stored quantities; the reconstruction is a
+        sum over all modes and therefore invariant under the chosen order. The
+        criteria follow flowTorch: the amplitude importance :math:`|b_i|` and the
+        integral contribution of Kou et al. (2017),
+        :math:`\\|\\phi_i\\|^2 \\sum_t |b_i \\lambda_i^t|`.
+
+        :param by: sorting criterion; one of ``amplitude`` (descending
+            :math:`|b|`), ``integral`` (descending integral contribution),
+            or ``frequency`` (ascending :math:`|f|`, flowTorch uses frequency
+            only as a filter)
+        :type by: str
+        :return: None
+        :rtype: None
+        """
+        if by == "amplitude":
+            key = np.abs(self.amplitudes)
+            descending = True
+        elif by == "integral":
+            assert self.integral_contribution is not None, (
+                "The integral criterion requires the integral contributions "
+                "provided by flowTorch")
+            key = self.integral_contribution
+            descending = True
+        elif by == "frequency":
+            key = np.abs(self.frequencies)
+            descending = False
+        else:
+            assert False, (f"Unknown sorting criterion {by!r}, must be one of: "
+                           "'amplitude', 'integral', 'frequency'")
+        order = np.argsort(key, kind="stable")
+        if descending:
+            order = order[::-1]
+        self.modes = np.ascontiguousarray(self.modes[:, order])
+        self.amplitudes = self.amplitudes[order]
+        self.eigvals = self.eigvals[order]
+        if self.integral_contribution is not None:
+            self.integral_contribution = self.integral_contribution[order]
 
     def mode(self, index: int) -> np.ndarray:
         """
