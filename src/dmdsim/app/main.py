@@ -12,6 +12,7 @@ from bokeh.application import Application
 from bokeh.server.callbacks import PeriodicCallback
 from bokeh.application.handlers import FunctionHandler
 from bokeh.models import Button, CheckboxGroup, Div, Slider, Spinner, Toggle
+from tornado.ioloop import PeriodicCallback as TornadoPeriodicCallback
 
 from dmdsim.core.engine import fit_dmd
 from dmdsim.core.quantities import DMDResult
@@ -28,6 +29,8 @@ logging.getLogger("flowtorch").setLevel(logging.WARNING)
 _MAX_MODE_EDITORS = 3
 _NOISE_SEED = 42
 _PLAY_INTERVAL_MS = 60
+_WATCHDOG_INTERVAL_MS = 500
+_SHUTDOWN_GRACE_MS = 2000
 
 # per-mode editor defaults: wavenumber, frequency, amplitude, growth rate, active
 _MODE_DEFAULTS: list[tuple[float, float, float, float, bool]] = [
@@ -535,13 +538,39 @@ def modify_doc(doc: Document) -> None:
 def main() -> None:
     """
     Start the DMD playground as a standalone Bokeh server on localhost and open
-    it in the default browser.
+    it in the default browser. The server stops itself about two seconds after
+    the last browser session disconnected.
 
     :return: None
     :rtype: None
     """
     server = Server({"/": Application(FunctionHandler(modify_doc))}, num_procs=1)
+    state = {"empty_ticks": 0}
+
+    def watchdog() -> None:
+        """
+        Stop the io loop once every browser session has disconnected for the
+        configured grace period.
+
+        :return: None
+        :rtype: None
+        """
+        sessions = server.get_sessions("/")
+        if not sessions:
+            return
+        # require a short grace period to tolerate quick reconnects
+        if all(session.connection_count == 0 for session in sessions):
+            state["empty_ticks"] += 1
+        else:
+            state["empty_ticks"] = 0
+        if state["empty_ticks"] * _WATCHDOG_INTERVAL_MS >= _SHUTDOWN_GRACE_MS:
+            server.io_loop.stop()
+
     server.start()
+    # Bokeh's own session cleanup does not run when the io loop is managed
+    # manually (the periodic jobs bind to the wrong loop), so the shutdown is
+    # handled by the watchdog instead; it must start from inside the running loop
+    server.io_loop.add_callback(TornadoPeriodicCallback(watchdog, _WATCHDOG_INTERVAL_MS).start)
     server.io_loop.add_callback(server.show, "/")
     server.io_loop.start()
 

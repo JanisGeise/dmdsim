@@ -48,6 +48,10 @@ eigenvalue plane, DMD spectrum, mode shape viewer (Re/Im/|φ|/arg φ), and the t
 hints under the plots explain each quantity. Deselect modes in the checkbox row to
 study their individual contribution to the reconstruction.
 
+The `dmdsim-app` server stops itself automatically about two seconds after the last
+browser tab or window is closed. The manual `bokeh serve` variant keeps running until
+you stop it with `Ctrl+C`.
+
 ## Usage
 
 The core is GUI-independent and can be used from scripts and notebooks.
