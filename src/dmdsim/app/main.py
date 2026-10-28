@@ -12,7 +12,9 @@ from bokeh.server.server import Server
 from bokeh.application import Application
 from bokeh.server.callbacks import PeriodicCallback
 from bokeh.application.handlers import FunctionHandler
-from bokeh.models import Button, CheckboxGroup, Select, Slider, Spinner, TabPanel, Tabs, Toggle, Tooltip
+from bokeh.models import (Button, CheckboxGroup, Div, GlobalInlineStyleSheet,
+                          InlineStyleSheet, Select, Slider, Spinner, Switch,
+                          TabPanel, Tabs, Toggle, Tooltip)
 from tornado.ioloop import PeriodicCallback as TornadoPeriodicCallback
 
 from dmdsim.core.engine import fit_dmd
@@ -24,8 +26,10 @@ from dmdsim.app.figures import (create_direction_figure, create_eigenvalue_figur
                                 create_mode_component_figure, create_mode_dynamics_figure,
                                 create_signal_curve_figure, create_spectrum_figure,
                                 create_time_curves_figure)
-from dmdsim.app.styling import (PAIR_PALETTE, header, hint, info_box, style_figure,
-                                step_colors, tab_stylesheet)
+from dmdsim.app.styling import (PAIR_PALETTE, PAIR_PALETTE_DARK, THEMES, header,
+                                header_styles, hint, hint_styles, info_box,
+                                info_styles, page_css, step_colors, style_figure,
+                                tab_css, theme_colors)
 
 # keep the flowTorch info messages out of the application output
 logging.getLogger("flowtorch").setLevel(logging.WARNING)
@@ -58,10 +62,11 @@ _HINT_DYNAMICS = ("Powers λᵗ of the selected mode in the complex plane, anima
                   "the global time cursor: the trail spirals inward (decay), outward "
                   "(growth) or orbits on a circle (neutral); the rotation speed is the "
                   "frequency. Dragging an eigenvalue later reshapes this spiral live.")
-_HINT_SPECTRUM = ("Mode strength |b| over frequency; conjugate pairs appear as mirror "
-                  "peaks and share their color. Position encodes stability (radius = "
-                  "growth/decay), the large marker is the selected eigenvalue, and "
-                  "the dashed lines mark the Nyquist limits ±1/(2·dt).")
+_HINT_SPECTRUM = ("Mode amplitude |b| (how strong each mode is) over frequency; "
+                  "conjugate pairs appear as mirror peaks and share their color. "
+                  "Position encodes stability (radius = growth/decay), the large "
+                  "marker is the selected eigenvalue, and the dashed lines mark the "
+                  "Nyquist limits ±1/(2·dt).")
 _HINT_MODE = ("Complex spatial shape φ(s): Re and Im form the wave profile, |φ| its "
               "magnitude, and arg(φ) the local phase shift. A linear arg(φ) corresponds "
               "to a wavenumber.")
@@ -137,6 +142,7 @@ class DMDPlayground:
         :rtype: None
         """
         self._doc = doc
+        self._theme = "light"
         self._signal: ModalSignal | None = None
         self._result: DMDResult | None = None
         self._reconstruction: np.ndarray | None = None
@@ -151,9 +157,21 @@ class DMDPlayground:
         self._fit_eigvals: np.ndarray | None = None
         self._locked_edit_indices: set[int] = set()
         self._drag_cache: tuple[np.ndarray, np.ndarray] = (np.array([]), np.array([]))
+        self._themed_divs: list[tuple[Div, str, str]] = []
+        # theme stylesheets (created once; a theme switch updates their css)
+        self._page_sheet = GlobalInlineStyleSheet(css=page_css(self._theme))
+        self._tab_sheet = InlineStyleSheet(css=tab_css(self._theme, vertical=True))
+        self._mode_tab_sheet = InlineStyleSheet(
+            css=tab_css(self._theme, accent=step_colors("modes", self._theme)[1],
+                        vertical=False))
+        self._styled_figures: list[tuple[figure, str]] = []
+        self._headers: list[tuple[Div, str]] = []
+        self._hints: list[Div] = []
         self._build_widgets()
         self._build_figures()
         self._build_layout()
+        # BISECTION: initial _apply_theme disabled temporarily
+        # self._apply_theme()
         self._attach_callbacks()
         self._run_dmd()
 
@@ -233,9 +251,11 @@ class DMDPlayground:
                                             ("frequency", "frequency |f|")],
                                    width=220,
                                    description="ordering of the modes in all views; "
-                                               "the integral contribution follows Kou "
-                                               "et al. (2017) as computed by flowTorch; "
-                                               "sorting only rearranges the modes, the "
+                                               "'integral contribution' ranks modes by "
+                                               "how much of the signal's fluctuation "
+                                               "energy they explain over the whole "
+                                               "signal (Kou et al. 2017); sorting only "
+                                               "rearranges the modes, the "
                                                "reconstruction is unchanged")
         self._eigen_time_slider = Slider(title="t [s]", start=0, end=2.99, value=0,
                                          step=0.01, width=300)
@@ -255,6 +275,9 @@ class DMDPlayground:
         self._readout_div = info_box()
         # slightly larger text improves the glanceability of the derived numbers
         self._direction_div = info_box(font_size="13px")
+        self._themed(self._status_div, "info12")
+        self._themed(self._readout_div, "info12")
+        self._themed(self._direction_div, "info13")
         self._modes_time_slider = Slider(title="t [s]", start=0, end=2.99, value=0,
                                          step=0.01, width=300)
         self._modes_play_toggle = Toggle(label="▶ play", active=False, width=100)
@@ -274,48 +297,130 @@ class DMDPlayground:
             create_direction_figure()
         self._spectrum_figure, self._spectrum_source, self._nyquist_spans = \
             create_spectrum_figure()
-        self._signal_figure, self._signal_line_source = create_signal_curve_figure()
-        self._time_figure, self._time_source, self._pair_source, \
-            self._selected_renderer = create_time_curves_figure()
+        self._signal_figure, self._signal_line_source, self._signal_line_renderer = \
+            create_signal_curve_figure()
+        (self._time_figure, self._time_source, self._pair_source,
+         self._selected_renderer, self._curve_renderers) = create_time_curves_figure()
         # one single-quantity figure per mode submenu
         self._mode_views = {}
         for quantity in ("real", "imag", "phase"):
             mode_figure, mode_source = create_mode_component_figure(quantity)
-            style_figure(mode_figure, "modes")
             self._mode_views[quantity] = (mode_figure, mode_source)
-        # color-code the figures by step for visual distinction
-        style_figure(self._eigenvalue_figure, "eigenvalues")
-        style_figure(self._dynamics_figure, "eigenvalues")
-        style_figure(self._spectrum_figure, "spectrum")
-        style_figure(self._time_figure, "reconstruction")
-        style_figure(self._signal_figure, "setup")
+        # register figures with their step colors for theming
+        self._styled_figures = [
+            (self._eigenvalue_figure, "eigenvalues"),
+            (self._dynamics_figure, "eigenvalues"),
+            (self._spectrum_figure, "spectrum"),
+            (self._time_figure, "reconstruction"),
+            (self._signal_figure, "setup"),
+            *[(mode_figure, "modes") for mode_figure, _ in self._mode_views.values()],
+        ]
 
     def _build_layout(self) -> None:
         """
-        Arrange the widgets and figures into a tabbed layout with one panel per step.
+        Arrange the widgets and figures into the page layout.
 
-        The tab headers act as a left sidebar with numbered workflow steps; every
-        panel keeps its state while another panel is shown. The Signal panel is
-        the start menu (create the signal, animate it, run the fit); the Mode
-        shapes panel contains nested submenus for the individual mode quantities.
+        The layout consists of an application bar (title and theme toggle) and a
+        tabbed area: a start panel as the default landing tab (DMD in a nutshell,
+        workflow navigation, and tips) followed by one panel per step. The tab
+        headers act as a left sidebar; every panel keeps its state while another
+        panel is shown. All chrome is styled with the current theme.
 
         :return: None
         :rtype: None
         """
-        # one compact editor row per mode
+        mode = self._theme
+        # theme stylesheets (stored so a theme switch can update their css)
+        self._page_sheet = GlobalInlineStyleSheet(css=page_css(mode))
+        self._tab_sheet = InlineStyleSheet(css=tab_css(mode, vertical=True))
+        self._mode_tab_sheet = InlineStyleSheet(
+            css=tab_css(mode, accent=step_colors("modes", mode)[1], vertical=False))
+        # application bar: title and theme switch
+        title_div = Div(text="<b>DMD Playground</b> — an interactive companion to the "
+                             "DMD lecture",
+                        styles={"color": theme_colors(mode)["text"],
+                                "font-size": "15px", "padding": "8px 6px"},
+                        width=900)
+        self._theme_switch = Switch(label="dark mode", active=(mode == "dark"),
+                                    width=100)
+        self._theme_switch.on_change("active", self._on_theme_switch)
+        app_bar = row(title_div, self._theme_switch, spacing=10)
+        # start panel: nutshell, workflow navigation, and tips
+        nutshell = self._themed_info(
+            "<b>DMD in a nutshell</b><br>"
+            "You measure a signal y(x, t) at many points in time — the snapshots are "
+            "stacked into the <b>snapshot matrix</b> "
+            "X = [y(x, t₀) … y(x, t<sub>N−1</sub>)]. DMD compares every snapshot with "
+            "the next one (the time-shifted matrix X′) and finds the linear operator "
+            "A ≈ X′X<sup>+</sup> that best advances the snapshots: X′ ≈ A X. The SVD "
+            "of X solves this eigenvalue problem: the <b>eigenvalues λ</b> tell each "
+            "mode how to evolve (angle = frequency, radius = growth/decay), the "
+            "<b>DMD modes φ</b> are the shapes, and the <b>amplitudes b</b> set their "
+            "strength. Every mode contributes φ·b·λ<sup>t</sup>, and the sum of all "
+            "modes reconstructs the signal: "
+            "y(x, t) ≈ Σ<sub>i</sub> φ<sub>i</sub>(x) · b<sub>i</sub> · λ<sub>i</sub>"
+            "<sup>t</sup>.",
+            font_size="13px")
+        step_for_panel = {1: "setup", 2: "eigenvalues", 3: "spectrum", 4: "modes",
+                          5: "reconstruction"}
+        descriptions = [
+            ("1 · Signal", "design a traveling-wave signal and run the DMD fit", 1),
+            ("2 · Eigenvalues", "inspect the fitted eigenvalues — drag them and watch "
+                                "the reconstruction respond", 2),
+            ("3 · Spectrum", "see each mode's amplitude over frequency", 3),
+            ("4 · Mode shapes", "look at Re/Im/phase of each mode and its traveling "
+                                "wave", 4),
+            ("5 · Reconstruction", "compare the reconstruction against the original "
+                                   "and toggle modes on and off", 5),
+        ]
+        buttons = [Button(label="Open", width=90) for _ in descriptions]
+        workflow_rows = []
+        for button, (name, description, target) in zip(buttons, descriptions):
+            button.on_click(self._make_goto(target))
+            _, accent = step_colors(step_for_panel[target], mode)
+            button.styles = {"background-color": accent,
+                             "color": theme_colors(mode)["page_bg"],
+                             "border": "none", "border-radius": "6px",
+                             "font-weight": "500"}
+            self._themed(button, "btn", step_for_panel[target])
+            workflow_rows.append(row(
+                name_div := Div(text=f"<b>{name}</b>", width=170),
+                desc_div := Div(text=description, width=690),
+                button,
+                spacing=10,
+            ))
+            self._themed(name_div, "wf_name", step_for_panel[target])
+            self._themed(desc_div, "wf_desc")
+        tips = hint(
+            "Tips: drag the eigenvalue dots in panel 2 (the toggle 'lock to unit "
+            "circle' keeps them neutral) · uncheck eigenvalues in panel 5 to see "
+            "each mode's contribution · hover curves and markers for details · "
+            "switch light/dark above.",
+            width=1000)
+        start_panel = column(
+            nutshell,
+            self._themed_info("Work through the steps in order — or jump straight "
+                              "to any panel with the buttons on the right.",
+                              font_size="12px"),
+            *workflow_rows,
+            tips,
+            width=1000,
+            spacing=12,
+        )
+        # step panels (unchanged structure, themed chrome)
         composition = column(
-            header("Modal composition", "setup"),
+            self._themed_header("Modal composition", "setup"),
             row(self._n_modes_spinner, self._f_min_spinner, self._f_max_spinner,
                 self._offset_spinner),
             spacing=10,
         )
         controls = column(
             composition,
-            header("Time", "setup"),
+            self._themed_header("Time", "setup"),
             row(self._dt_spinner, self._n_time_spinner),
-            header("Noise", "setup"),
+            self._themed_header("Noise", "setup"),
             row(self._noise_spinner),
-            header("DMD fit", "setup"),
+            self._themed_header("DMD fit", "setup"),
             self._rank_spinner,
             self._auto_toggle,
             self._run_button,
@@ -323,55 +428,228 @@ class DMDPlayground:
             spacing=8,
         )
         animation = column(
-            header("Signal animation", "setup"),
+            self._themed_header("Signal animation", "setup"),
             self._signal_figure,
             row(self._signal_time_slider, self._signal_play_toggle),
+            self._themed_hint("The same time cursor drives every panel.", width=500),
             spacing=8,
         )
         signal_panel = row(controls, animation, spacing=14)
         eigen_panel = column(
-            row(self._dynamics_mode_slider, self._sort_select),
-            row(self._amplitude_spinner, self._lock_toggle),
+            row(self._dynamics_mode_slider, self._sort_select, self._amplitude_spinner,
+                self._lock_toggle),
             row(self._eigenvalue_figure, self._dynamics_figure),
             row(self._eigen_time_slider, self._eigen_play_toggle),
-            row(hint(_HINT_EIGENVALUES, width=620), hint(_HINT_DYNAMICS, width=620)),
+            row(self._themed_hint(_HINT_EIGENVALUES, width=620),
+                self._themed_hint(_HINT_DYNAMICS, width=620)),
             spacing=10,
         )
-        spectrum_panel = column(self._spectrum_figure, hint(_HINT_SPECTRUM, width=620),
+        spectrum_panel = column(self._spectrum_figure,
+                                self._themed_hint(_HINT_SPECTRUM, width=620),
                                 spacing=10)
         mode_tabs = Tabs(tabs=[
             TabPanel(child=column(self._mode_views["real"][0],
-                                  hint(_HINT_REAL, width=1000), spacing=8),
+                                  self._themed_hint(_HINT_REAL, width=1000), spacing=8),
                      title="Real part"),
             TabPanel(child=column(self._mode_views["imag"][0],
-                                  hint(_HINT_IMAG, width=1000), spacing=8),
+                                  self._themed_hint(_HINT_IMAG, width=1000), spacing=8),
                      title="Imaginary part"),
             TabPanel(child=column(self._mode_views["phase"][0],
-                                  hint(_HINT_PHASE, width=1000), spacing=8),
+                                  self._themed_hint(_HINT_PHASE, width=1000), spacing=8),
                      title="Phase"),
             TabPanel(child=column(self._direction_figure,
                                   row(self._modes_time_slider, self._modes_play_toggle),
                                   self._direction_div, spacing=8),
                      title="Propagation direction"),
         ], tabs_location="above",
-            stylesheets=[tab_stylesheet(accent=step_colors("modes")[1], vertical=False)])
+            stylesheets=[self._mode_tab_sheet])
+        self._mode_tabs = mode_tabs
         mode_panel = column(self._mode_slider, mode_tabs, spacing=10)
         time_panel = column(
-            header("Time &amp; mode selection", "reconstruction"),
+            self._themed_header("Time &amp; mode selection", "reconstruction"),
             row(self._time_slider, self._play_toggle),
             self._mode_select,
             self._time_figure,
-            row(hint(_HINT_TIME, width=500), self._readout_div),
+            row(self._themed_hint(_HINT_TIME, width=500), self._readout_div),
             spacing=10,
         )
-        tabs = Tabs(tabs=[
+        self._tabs = Tabs(tabs=[
+            TabPanel(child=start_panel, title="Start"),
             TabPanel(child=signal_panel, title="1 · Signal"),
             TabPanel(child=eigen_panel, title="2 · Eigenvalues"),
             TabPanel(child=spectrum_panel, title="3 · Spectrum"),
             TabPanel(child=mode_panel, title="4 · Mode shapes"),
             TabPanel(child=time_panel, title="5 · Reconstruction"),
-        ], tabs_location="left", stylesheets=[tab_stylesheet()])
-        self._doc.add_root(tabs)
+        ], tabs_location="left",
+            stylesheets=[self._tab_sheet])
+        self._mode_tabs.stylesheets = [self._mode_tab_sheet]
+        self._layout_root = column(app_bar, self._tabs, spacing=8,
+                                   stylesheets=[self._page_sheet])
+        self._doc.add_root(self._layout_root)
+
+    def _themed(self, div: Div, kind: str, step: str = "") -> None:
+        """
+        Register a Div for theme-dependent restyling.
+
+        :param div: themed element
+        :type div: Div
+        :param kind: style kind; one of ``"header"``, ``"hint"``, ``"info12"``,
+            ``"info13"``, ``"app_title"``, ``"wf_name"``, ``"wf_desc"``, or
+            ``"btn"`` (with ``step`` selecting the accent)
+        :type kind: str
+        :param step: step key for kinds that use a step accent, defaults to ""
+        :type step: str, optional
+        :return: None
+        :rtype: None
+        """
+        self._themed_divs.append((div, kind, step))
+
+    def _themed_header(self, text: str, step: str) -> Div:
+        """
+        Create and register a themed section header.
+
+        :param text: header text (HTML, escape special characters)
+        :type text: str
+        :param step: step key selecting the panel colors
+        :type step: str
+        :return: themed header element
+        :rtype: Div
+        """
+        div = header(text, step, self._theme)
+        self._themed(div, "header", step)
+        return div
+
+    def _themed_hint(self, text: str, width: int | None = None) -> Div:
+        """
+        Create and register a themed hint text block.
+
+        :param text: explanation text (HTML, escape special characters)
+        :type text: str
+        :param width: fixed width of the block in pixels; unconstrained if ``None``
+        :type width: int | None
+        :return: themed hint element
+        :rtype: Div
+        """
+        div = hint(text, width, self._theme)
+        self._themed(div, "hint")
+        return div
+
+    def _themed_info(self, text: str, font_size: str = "12px") -> Div:
+        """
+        Create and register a themed info box.
+
+        :param text: content of the box (HTML, escape special characters)
+        :type text: str
+        :param font_size: font size of the box text
+        :type font_size: str
+        :return: themed info box element
+        :rtype: Div
+        """
+        div = info_box(text, font_size, self._theme)
+        self._themed(div, "info13" if font_size == "13px" else "info12")
+        return div
+
+    def _apply_theme(self) -> None:
+        """
+        Apply the current theme in place to all figures, widgets, and text elements.
+
+        The figure colors (canvas) are set from the theme, the registered Divs
+        (headers, hints, info boxes, workflow entries) are restyled, the theme
+        dependent renderer colors are updated, and the stored stylesheets' CSS
+        strings are regenerated. No models are added or removed, so the session,
+        the active panel, and all widget states are preserved.
+
+        :return: None
+        :rtype: None
+        """
+        theme = THEMES[self._theme]
+        for fig, step in self._styled_figures:
+            style_figure(fig, step, self._theme)
+        self._signal_line_renderer.glyph.line_color = theme["line_signal"]
+        self._curve_renderers["original"].glyph.line_color = theme["line_original"]
+        self._curve_renderers["reconstruction"].glyph.line_color = \
+            theme["line_reconstruction"]
+        self._curve_renderers["selection"].glyph.line_color = theme["line_selection"]
+        for div, kind, step in self._themed_divs:
+            if kind == "header":
+                div.styles = header_styles(step, self._theme)
+            elif kind == "hint":
+                div.styles = hint_styles(self._theme)
+            elif kind == "info12":
+                div.styles = info_styles(self._theme, "12px")
+            elif kind == "info13":
+                div.styles = info_styles(self._theme, "13px")
+            elif kind == "app_title":
+                div.styles = {"color": theme["text"], "font-size": "15px",
+                              "padding": "8px 6px"}
+            elif kind == "wf_name":
+                div.styles = {"color": theme["accents"][step], "font-weight": "600"}
+            elif kind == "wf_desc":
+                div.styles = {"color": theme["text"], "font-size": "12px"}
+            elif kind == "btn":
+                div.styles = {"background-color": theme["accents"][step],
+                              "color": theme["page_bg"], "border": "none",
+                              "border-radius": "6px", "font-weight": "500"}
+        # recreate the stylesheets and re-attach them: a GlobalInlineStyleSheet
+        # is injected into the page only once, so updating its css alone does
+        # not re-theme the page
+        self._page_sheet = GlobalInlineStyleSheet(css=page_css(self._theme))
+        self._tab_sheet = InlineStyleSheet(css=tab_css(self._theme, vertical=True))
+        self._mode_tab_sheet = InlineStyleSheet(
+            css=tab_css(self._theme, accent=theme["accents"]["modes"],
+                        vertical=False))
+        self._layout_root.stylesheets = [self._page_sheet]
+        self._tabs.stylesheets = [self._tab_sheet]
+        self._mode_tabs.stylesheets = [self._mode_tab_sheet]
+        # bokeh widgets theme via CSS custom properties that inherit into their
+        # shadow roots; set them per widget (accent-styled buttons are excluded)
+        widget_styles = {"--background-color": theme["box_bg"],
+                         "--surface-background-color": theme["box_bg"],
+                         "--color": theme["text"],
+                         "--hover-color": theme["tab_hover_bg"],
+                         "--disabled-color": theme["muted"]}
+        for model in list(self._doc.models):
+            if isinstance(model, (Spinner, Select, Slider, Toggle, Switch,
+                                  CheckboxGroup)):
+                model.styles = widget_styles
+
+    def _on_theme_switch(self, attr: str, old: bool, new: bool) -> None:
+        """
+        Switch the application theme and re-apply all colors in place.
+
+        :param attr: name of the changed widget attribute
+        :type attr: str
+        :param old: previous switch state
+        :type old: bool
+        :param new: new switch state (``True`` = dark, ``False`` = light)
+        :type new: bool
+        :return: None
+        :rtype: None
+        """
+        new_theme = "dark" if new else "light"
+        if new_theme == self._theme:
+            return
+        self._theme = new_theme
+        self._apply_theme()
+
+    def _make_goto(self, index: int):
+        """
+        Create a navigation callback that opens the given tab.
+
+        :param index: tab index to activate
+        :type index: int
+        :return: callback suitable for a Bokeh button
+        :rtype: callable
+        """
+        def goto() -> None:
+            """
+            Activate the target tab.
+
+            :return: None
+            :rtype: None
+            """
+            self._tabs.active = index
+        return goto
 
     def _attach_callbacks(self) -> None:
         """
@@ -571,7 +849,8 @@ class DMDPlayground:
 
         Each detected pair shares a categorical color so a physical mode can be
         followed across all views; unpaired modes (real eigenvalues, e.g., a
-        constant offset) are gray.
+        constant offset) are gray. The palette follows the theme (brighter
+        colors in dark mode).
 
         :return: one marker color per fitted mode
         :rtype: list[str]
@@ -579,9 +858,10 @@ class DMDPlayground:
         result = self._result
         if result is None:
             return []
+        palette = PAIR_PALETTE_DARK if self._theme == "dark" else PAIR_PALETTE
         assignment = {}
         for pair_index, (i, j) in enumerate(result.pairs):
-            color = PAIR_PALETTE[pair_index % len(PAIR_PALETTE)]
+            color = palette[pair_index % len(palette)]
             assignment[i] = color
             assignment[j] = color
         return [assignment.get(i, "#9aa0a6") for i in range(result.n_modes)]
@@ -844,11 +1124,12 @@ class DMDPlayground:
             if result is not None and result.n_modes > 0 else "#9aa0a6"
         self._update_readout(index)
         # eigenvalue power trajectory of the selected mode, starting at lambda^1;
-        # the trail carries the stability color of the selected mode
+        # the trail carries the pair color of the selected eigenvalue
         if result is not None and result.n_modes > 0:
             color = self._pair_colors()[index]
             powers = result.eigvals[index] ** np.arange(1, max(t_index, 1) + 1)
-            self._dynamics_trail_source.data = dict(x=powers.real, y=powers.imag)
+            self._dynamics_trail_source.data = dict(x=powers.real, y=powers.imag,
+                                                    color=[color] * len(powers))
             self._dynamics_point_source.data = dict(x=[powers.real[-1]],
                                                     y=[powers.imag[-1]],
                                                     color=[color])

@@ -111,24 +111,30 @@ Expected source columns are documented in each docstring; the app fills them in
 
 ## `src/dmdsim/app/styling.py`
 
-Central visual styling of the application (modern light theme, one accent color
-per step for visual distinction):
+Central visual styling of the application with a **theme system** (light and
+dark; the dark theme follows the lecture website's dark variant, page
+background #131313):
 
-- `_STEP_COLORS` — per-step `(tint, accent)` pairs: setup blue, eigenvalues green,
-  spectrum amber, modes purple, reconstruction red.
-- `step_colors(step)` — accessor for the pair above.
-- `style_figure(fig, step)` — white plot area on the tinted panel background,
-  accent-colored bold title, muted gray axes/grid/legend (legend styling only
-  applied when the figure actually has legends).
-- `header(text, step)` — colored section header element for panels.
-- `hint(text, width=None)` — muted inline explanation block.
-- `info_box(text="", font_size="12px")` — neutral box for dynamic status/readout
-  text.
-- `tab_stylesheet(accent="#1a73e8", vertical=True)` — `InlineStyleSheet` for a tab
-  strip (rounded buttons, hover state, accent-colored active tab); vertical
-  strips get uniformly wide, left-aligned buttons (main sidebar), horizontal
-  strips compact buttons (nested submenus); uses the `.bk-tab`/`.bk-active`
-  classes.
+- `THEMES` — per-mode color dictionaries (page/text/muted/grid/box/tab/line
+  colors plus per-step panel tints and accents).
+- `PAIR_PALETTE` / `PAIR_PALETTE_DARK` — categorical colors for conjugate
+  eigenvalue pairs (one color per physical mode); the dark cycle is brighter.
+- `theme_colors(mode)`, `step_colors(step, mode)` — accessors.
+- `style_figure(fig, step, mode)` — theme plot background on the tinted panel
+  border, accent-colored bold title, theme axes/grid/legend (legend styling
+  only applied when the figure actually has legends).
+- `header(text, step, mode)` / `header_styles(step, mode)` — colored section
+  header element and its style dictionary (for re-theming existing widgets).
+- `hint(text, width=None, mode)` / `hint_styles(mode)` — muted inline
+  explanation block.
+- `info_box(text, font_size, mode)` / `info_styles(mode, font_size)` — neutral
+  box for dynamic status/readout text.
+- `tab_stylesheet(mode, accent, vertical)` — `InlineStyleSheet` for a tab strip
+  (rounded buttons, hover state, accent-colored active tab; uses the
+  `.bk-tab`/`.bk-active` classes).
+- `page_stylesheet(mode)` — `GlobalInlineStyleSheet` with the page-wide widget
+  CSS (inputs, buttons, sliders, tooltips, menus); the app keeps a reference
+  and updates its `css` on theme switches.
 
 .. note:: Spinner tooltip mechanics
     Widget `description` must be a `bokeh.models.Tooltip` instance to render the

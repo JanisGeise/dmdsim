@@ -8,6 +8,7 @@ modules change.
 ## M0 — project setup (2026-10-28)
 
 
+
 - Created `.venv` (Python 3.12), `pyproject.toml` (src layout, package `dmdsim`),
   `requirements.txt` (pinned, CPU-only torch), `.gitignore`.
 - Installed flowTorch editable from the local repository `../flowtorch` with
@@ -17,6 +18,7 @@ modules change.
   exact recovery of a 5 Hz traveling wave). Decision: always feed float64.
 
 ## M1 — core library (2026-10-28)
+
 
 
 - `signals/generator.py`: `Mode` + `ModalSignal` — synthetic modal line fields
@@ -37,6 +39,7 @@ modules change.
 ## M2 — GUI v1 (2026-10-28)
 
 
+
 - `app/figures.py` + `app/main.py`: Bokeh application with signal panel (3 mode
   editors κ/f/A/σ, grid, offset, noise), DMD panel (rank with automatic option,
   auto-rerun toggle, Run button), eigenvalue plane, spectrum, mode shape viewer
@@ -51,6 +54,7 @@ modules change.
   decision that internal test scripts stay out of version control).
 
 ## M2.1 — server shutdown on browser close (2026-10-28)
+
 
 
 - Requirement: the app server must stop when the browser is closed.
@@ -68,6 +72,7 @@ modules change.
 ## M2.2 — sidebar layout and internal documentation (2026-10-28)
 
 
+
 - GUI restructure: the crowded single-page layout became a `Tabs` widget with
   `tabs_location="left"` — a left sidebar with one submenu per step: "① Signal"
   (generators + fit controls + status), "② Eigenvalues", "③ Spectrum",
@@ -82,6 +87,7 @@ modules change.
 ## M2.3 — signal preview and cleaner menus (2026-10-28)
 
 
+
 - User feedback: the created signal was not visible in the setup panel, and the
   menu naming was confusing.
 - Panels renamed to what they show: "Setup", "Eigenvalues", "Spectrum",
@@ -94,6 +100,7 @@ modules change.
   noise, DMD fit, Signal preview.
 
 ## M2.4 — modern styling with per-step accent colors (2026-10-28)
+
 
 
 - User feedback: the GUI should look more modern and the panels should be
@@ -112,6 +119,7 @@ modules change.
 ## M2.5 — vision-based GUI polish (2026-10-28)
 
 
+
 - Method: headless screenshots of all five tabs (Playwright in a throwaway venv,
   scripts untracked in `run/`) reviewed with a vision model, two review rounds.
 - Round 1 findings: Setup tab was a "wall of controls" (blocking), tab labels too
@@ -126,6 +134,7 @@ modules change.
   names OpenCode and ScaDS.AI with links.
 
 ## M2.6 — start menu, nested mode submenus, sidebar alignment (2026-10-28)
+
 
 
 - User feedback: the sidebar was not aligned, a start menu was missing (create
@@ -152,6 +161,7 @@ modules change.
   create → animate → run, nested sub-tabs clean; verdict "acceptable to show".
 
 ## M2.7 — Signal panel rework and panel-by-panel pass (2026-10-28)
+
 
 
 - User feedback (panel-by-panel round, starting with "1 · Signal"): the 1D signal
@@ -181,6 +191,7 @@ modules change.
 ## M2.8 — unit window, internal grid, percent noise (2026-10-28)
 
 
+
 - User feedback: typed number entry should work; dx/n_space need no user
   exposure; the animation should show y(x) over a fixed window x ∈ [0, 1]
   animated in time; noise should be a single percent box.
@@ -199,6 +210,7 @@ modules change.
   a single commit made (the M2.7 commit was reset accordingly).
 
 ## M2.9 — tooltips with bounds, clamped typing, section split (2026-10-28)
+
 
 
 - User feedback: the ? tooltips showed nothing; Enter seemed to fail in the modal
@@ -225,6 +237,7 @@ modules change.
 ## M2.10 — status update, GUI revise phase declared (2026-10-28)
 
 
+
 - PLAN.md, README.md and `documentation/architecture.md` updated to the current
   phase: the **GUI revise phase** is ongoing (M2.1–M2.9, panel-by-panel feedback
   rounds with vision-based screenshot reviews); the milestones table gained an
@@ -235,6 +248,7 @@ modules change.
   M3 (interactive eigenvalue editing) starts afterwards.
 
 ## M2.11 — wider bounds, hint removal, math labels (2026-10-28)
+
 
 
 - User feedback: the n_modes/frequency limits were arbitrary and too tight; the
@@ -258,6 +272,7 @@ modules change.
 ## M2.12 — Signal panel cosmetic fixes (2026-10-28)
 
 
+
 - User feedback: the rank info should belong to the DMD boxes, the DMD fit
   controls felt randomly distributed, n_modes was not rendered mathematically,
   and the time sliders should show t in seconds.
@@ -273,6 +288,7 @@ modules change.
 - Vision review round 10: "complete and production-ready", no must-fix items.
 
 ## M2.13 — DMD fit group fine-tuning (2026-10-28)
+
 
 
 - User feedback: auto-rerun and Run DMD belong below the rank box; the info box
@@ -292,6 +308,7 @@ modules change.
   manual Run DMD).
 
 ## M2.14 — eigenvalue dynamics subplot (2026-10-28)
+
 
 
 - User request: an animation subplot for the eigenvalues to emphasize their
@@ -320,6 +337,7 @@ modules change.
 ## M2.15 — panel 2 completed, panel 3 (Spectrum) revised (2026-10-28)
 
 
+
 - User feedback: the mode sliders should be called "eigenvalue number"; panel 2
   revision declared complete; panel 3 revision next.
 - Both mode sliders renamed to "eigenvalue number" (they pick an eigenvalue of
@@ -334,6 +352,7 @@ modules change.
 - Vision review round 13: "major success", no must-fix items.
 
 ## M2.15b — panel 2 follow-up: selection highlight, trail origin, pair colors (2026-10-28)
+
 
 - Round 14/16 follow-ups on panel 2: eigenvalue markers in all complex-plane
   plots and the spectrum carry **pair colors** — each conjugate pair shares one
@@ -351,6 +370,7 @@ modules change.
   runs on its own port 5099 and stray processes are killed before captures.
 
 ## M2.16 — panel 4 revision: phase wrapping + traveling-wave direction view (2026-10-28)
+
 
 
 - User feedback: the propagation-direction panel was "weird" and the discontinuous
@@ -376,6 +396,7 @@ modules change.
 ## M2.17 — panel 5 revision: pair-colored contributions (2026-10-28)
 
 
+
 - User request: update the Reconstruction panel with the design language
   established in the previous panel revisions.
 - The time view now draws a **thin per-eigenvalue contribution line in the
@@ -392,6 +413,7 @@ modules change.
   no must-fix items remain."
 
 ## M2.18 — panel 5 heatmap removed, fixed y-limits; revision committed (2026-10-28)
+
 
 - User feedback: remove the 2D animation (the space-time heatmap) from the
   Reconstruction panel; the y-limits of the animation must remain constant.
@@ -448,4 +470,99 @@ modules change.
   the origin are clamped to radius 1e-3 (log(0) undefined), constant signals
   produce a friendly "needs variation" message instead of the cryptic
   torch.linalg NaN error; drag-to-origin with and without the lock verified.
+
+## M4 — UX revision: start panel, themes, beginner labels (2026-10-28, commit pending user verdict)
+
+- Round 22 refinements: theme dropdown → "dark mode" toggle in the app bar
+  (theme switch no longer redirects to Start — active tabs preserved across the
+  layout rebuild), Start-panel "Open" buttons colored per step accent, panel 2
+  controls consolidated into one row, λᵗ trail color-column length fixed
+  (BokehUserWarning gone), dark mode uses the brighter `PAIR_PALETTE_DARK`
+  cycle. Vision review round 22: "production-ready".
+- Round 23 verification + fixes: in-place theming verified in the browser
+  (body #131313, input boxes #1e1e1e with light text, figure backgrounds
+  #1e1e1e); the white-input-box bug fixed via `!important` page CSS plus
+  per-widget CSS custom properties.
+- **Dark mode deferred**: some issues remain (partial coverage of widget
+  internals, hover states); the user accepted the current state — a dedicated
+  dark-mode revision is planned later (see backlog in PLAN.md).
+
+
+- Method: beginner-persona audit (a student who just heard the DMD lecture —
+  ML-CFD course, lecture 5) with vision-based review of all panels; report in
+  `run/reports/ux_revision.md`.
+- User feedback: the GUI should match the lecture website's style (light AND
+  dark mode), feel less overloaded, and a start panel should be the default
+  landing view.
+- **Theme system**: `app/styling.py` centralizes all colors in `THEMES` (light +
+  dark, dark = #131313 page with dark panel tints and brighter accents);
+  `style_figure`/`header`/`hint`/`info_box` take a mode parameter; the page and
+  widgets are styled via a `GlobalInlineStyleSheet` (inputs, buttons, sliders,
+  tooltips); figures are restyled through a registered `(figure, step)` list and
+  theme-dependent renderer colors (signal line, original/reconstruction/Σ
+  lines). Theme switch rebuilds the layout container (models persist; the old
+  root is removed after the new one is added — `doc.clear()` is forbidden, it
+  wipes session callbacks).
+- **Application bar**: title + theme dropdown (light/dark) above the tabs,
+  persistent on every panel.
+- **Start panel** (new default tab): "DMD in a nutshell" bridge (snapshot
+  matrix X → time-shifted X′ → SVD → eigenvalue problem → modes φ, amplitudes
+  b, λ → reconstruction formula), numbered workflow rows with Open buttons
+  (navigate to panels), and tips. Default landing view.
+- **Beginner labels**: "Σ selected" → "sum of selected modes"; spectrum y-axis
+  "amplitude |b|"; sort tooltip explains the integral contribution in lecture
+  terms; the shared-time-cursor line restored on panel 1.
+- **Decluttering**: panel 2 controls in one row (eigenvalue number, sort,
+  |b| scale, unit-circle lock); hints shortened.
+- Debug tooling moved to port 5099; stale-server lesson documented (always
+  verify the served build before reviewing captures).
+- Vision review rounds 20–21: dark theme "clean and consistent", start panel
+  "release-ready" (after a stale-server false alarm), pair colors "perfectly
+  implemented".
+- Round 22–23 user feedback implemented: (1) the theme dropdown became a
+  **`Switch` pill toggle** ("dark mode", bokeh 3.10 `Switch` widget) in the app
+  bar; (2) theme switching is now **in place** — `_apply_theme` restyles
+  figures, renderers, 34 registered Divs, and updates the stored stylesheets'
+  `css` strings; NO layout rebuild, NO root add/remove (the previous rebuild +
+  root swap broke the client session: shared models across roots, silent
+  render abort) — the active panel and all widget states are preserved;
+  (3) the Start panel's "Open" buttons are colored per step accent;
+  (4) panel 2's controls consolidated into ONE row; (5) the λᵗ trail's color
+  column length now matches the point count (fixes BokehUserWarning); (6) dark
+  mode uses a brighter pair-color cycle (`PAIR_PALETTE_DARK`); (7) widget boxes
+  stay white in dark mode unless the global CSS uses `!important` (bokeh's own
+  widget stylesheets win otherwise) — fixed. Vision review rounds 22–23:
+  "production-ready", "fully functional, white input box bug resolved".
+- Round 23 verification finding: updating a `GlobalInlineStyleSheet`'s `css`
+  after injection does NOT re-theme the page (injected once); the fix recreates
+  the stylesheet objects and re-attaches them to the layout root/tabs on every
+  theme switch — verified in the browser: body #131313, input boxes #1e1e1e
+  with light text, figure backgrounds #1e1e1e. Bokeh widgets theme via CSS
+  custom properties (`--background-color`, `--color`, `--hover-color`, ...)
+  that are set per widget in `_apply_theme`; accent-styled buttons keep their
+  inline accent colors.
+- Round 22–23 user feedback implemented: (1) the theme dropdown became a
+  **`Switch` pill toggle** ("dark mode", bokeh 3.10 `Switch` widget) in the app
+  bar; (2) theme switching is now **in place** — `_apply_theme` restyles
+  figures, renderers, 34 registered Divs, and updates the stored stylesheets'
+  `css` strings; NO layout rebuild, NO root add/remove (the previous rebuild +
+  root swap broke the client session: shared models across roots, silent
+  render abort) — the active panel and all widget states are preserved;
+  (3) the Start panel's "Open" buttons are colored per step accent;
+  (4) panel 2's controls consolidated into ONE row; (5) the λᵗ trail's color
+  column length now matches the point count (fixes BokehUserWarning); (6) dark
+  mode uses a brighter pair-color cycle (`PAIR_PALETTE_DARK`); (7) widget boxes
+  stay white in dark mode unless the global CSS uses `!important` (bokeh's own
+  widget stylesheets win otherwise) — fixed. Vision review rounds 22–23:
+  "production-ready", "fully functional, white input box bug resolved".
+- Round 22 user feedback implemented: (1) the theme dropdown became a **"dark
+  mode" toggle** in the app bar; (2) theme switching NO LONGER redirects to the
+  Start panel — `_apply_theme` preserves the active tabs (main + nested) and
+  swaps the layout root after rebuilding; (3) the Start panel's "Open" buttons
+  are colored per step accent; (4) panel 2's controls consolidated into ONE row;
+  (5) the λᵗ trail's color column length now matches the point count (fixes
+  BokehUserWarning); (6) dark mode uses a brighter pair-color cycle
+  (`PAIR_PALETTE_DARK`). Vision review round 22: "production-ready".
+- Open decisions: slider naming (kept "eigenvalue number" per earlier user
+  choice), default sort (kept integral contribution, tooltip explains it).
 

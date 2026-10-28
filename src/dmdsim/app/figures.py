@@ -114,7 +114,7 @@ def create_spectrum_figure() -> tuple[figure, ColumnDataSource, list[Span]]:
     for span in spans:
         fig.add_layout(span)
     fig.xaxis.axis_label = "f [Hz]"
-    fig.yaxis.axis_label = "|b|"
+    fig.yaxis.axis_label = "amplitude |b|"
     return fig, source, spans
 
 
@@ -200,10 +200,11 @@ def create_signal_curve_figure() -> tuple[figure, ColumnDataSource]:
     """
     fig = figure(width=500, height=380, title="signal at the current time")
     source = ColumnDataSource(dict(s=[], value=[]))
-    fig.line(x="s", y="value", source=source, color="#1a73e8", line_width=2)
+    line_renderer = fig.line(x="s", y="value", source=source, color="#1a73e8",
+                             line_width=2)
     fig.xaxis.axis_label = "$$x$$"
     fig.yaxis.axis_label = "$$y(x)$$"
-    return fig, source
+    return fig, source, line_renderer
 
 
 def create_time_curves_figure() -> tuple[figure, ColumnDataSource, ColumnDataSource,
@@ -226,15 +227,20 @@ def create_time_curves_figure() -> tuple[figure, ColumnDataSource, ColumnDataSou
     fig = figure(width=1000, height=420, title="field at current time")
     source = ColumnDataSource(dict(s=[], original=[], reconstruction=[], selected=[],
                                    selection=[]))
-    fig.line(x="s", y="original", source=source, legend_label="original", color="black",
-             line_width=2)
-    fig.line(x="s", y="reconstruction", source=source, legend_label="reconstruction",
-             color="#5f6368", line_width=2, line_dash="dashed")
-    fig.line(x="s", y="selection", source=source, legend_label="Σ selected",
-             color="#9aa0a6", line_width=2, line_dash="dashdot")
+    original_renderer = fig.line(x="s", y="original", source=source,
+                                 legend_label="original", color="black", line_width=2)
+    reconstruction_renderer = fig.line(x="s", y="reconstruction", source=source,
+                                       legend_label="reconstruction", color="#5f6368",
+                                       line_width=2, line_dash="dashed")
+    selection_renderer = fig.line(x="s", y="selection", source=source,
+                                  legend_label="sum of selected modes",
+                                  color="#9aa0a6", line_width=2, line_dash="dashdot")
     selected_renderer = fig.line(x="s", y="selected", source=source,
                                  legend_label="selected eigenvalue", color="#9aa0a6",
                                  line_width=3)
+    curve_renderers = {"original": original_renderer,
+                       "reconstruction": reconstruction_renderer,
+                       "selection": selection_renderer}
     pair_source = ColumnDataSource(dict(xs=[], ys=[], colors=[], index=[], f=[]))
     pair_renderer = fig.multi_line(xs="xs", ys="ys", source=pair_source,
                                    line_color="colors", line_width=1.5)
@@ -245,7 +251,7 @@ def create_time_curves_figure() -> tuple[figure, ColumnDataSource, ColumnDataSou
     fig.legend.click_policy = "hide"
     fig.xaxis.axis_label = "x"
     fig.yaxis.axis_label = "y"
-    return fig, source, pair_source, selected_renderer
+    return fig, source, pair_source, selected_renderer, curve_renderers
 
 
 if __name__ == "__main__":
