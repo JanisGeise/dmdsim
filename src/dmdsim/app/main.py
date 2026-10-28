@@ -11,7 +11,7 @@ from bokeh.server.server import Server
 from bokeh.application import Application
 from bokeh.server.callbacks import PeriodicCallback
 from bokeh.application.handlers import FunctionHandler
-from bokeh.models import Button, CheckboxGroup, Div, Slider, Spinner, Toggle
+from bokeh.models import Button, CheckboxGroup, Div, Slider, Spinner, TabPanel, Tabs, Toggle
 from tornado.ioloop import PeriodicCallback as TornadoPeriodicCallback
 
 from dmdsim.core.engine import fit_dmd
@@ -146,7 +146,10 @@ class DMDPlayground:
 
     def _build_layout(self) -> None:
         """
-        Arrange the widgets and figures into the page layout.
+        Arrange the widgets and figures into a tabbed layout with one panel per step.
+
+        The tab headers act as a left sidebar; every panel keeps its state while
+        another panel is shown, so interactions survive switching between steps.
 
         :return: None
         :rtype: None
@@ -162,23 +165,29 @@ class DMDPlayground:
             row(self._dt_spinner, self._dx_spinner, self._n_space_spinner,
                 self._n_time_spinner),
             row(self._offset_spinner, self._noise_toggle, self._noise_spinner),
-            Div(text="<b>DMD</b>"),
+            Div(text="<b>DMD fit</b>"),
             row(self._rank_spinner, self._auto_toggle, self._run_button),
             self._status_div,
-            width=460,
+            width=1000,
         )
-        plots = column(
-            row(self._eigenvalue_figure, self._spectrum_figure),
-            row(Div(text=_HINT_EIGENVALUES, width=460), Div(text=_HINT_SPECTRUM, width=460)),
-            self._mode_slider,
-            self._mode_figure,
-            Div(text=_HINT_MODE, width=940),
+        eigen_panel = column(self._eigenvalue_figure, Div(text=_HINT_EIGENVALUES, width=620))
+        spectrum_panel = column(self._spectrum_figure, Div(text=_HINT_SPECTRUM, width=620))
+        mode_panel = column(self._mode_slider, self._mode_figure,
+                            Div(text=_HINT_MODE, width=1000))
+        time_panel = column(
             row(self._time_slider, self._play_toggle),
             self._mode_select,
             row(self._heatmap_figure, self._time_figure),
-            row(Div(text=_HINT_TIME, width=460), self._readout_div),
+            row(Div(text=_HINT_TIME, width=500), self._readout_div),
         )
-        self._doc.add_root(row(signal_panel, plots))
+        tabs = Tabs(tabs=[
+            TabPanel(child=signal_panel, title="① Signal"),
+            TabPanel(child=eigen_panel, title="② Eigenvalues"),
+            TabPanel(child=spectrum_panel, title="③ Spectrum"),
+            TabPanel(child=mode_panel, title="④ Mode shape"),
+            TabPanel(child=time_panel, title="⑤ Time view"),
+        ], tabs_location="left")
+        self._doc.add_root(tabs)
 
     def _attach_callbacks(self) -> None:
         """

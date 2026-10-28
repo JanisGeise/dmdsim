@@ -16,7 +16,7 @@ def create_eigenvalue_figure() -> tuple[figure, ColumnDataSource]:
         expects the columns ``re``, ``im``, ``index``, ``frequency``, and ``growth``
     :rtype: tuple[figure, ColumnDataSource]
     """
-    fig = figure(width=460, height=340, title="eigenvalue plane", match_aspect=True,
+    fig = figure(width=620, height=560, title="eigenvalue plane", match_aspect=True,
                  x_range=(-1.6, 1.6), y_range=(-1.6, 1.6))
     angles = np.linspace(0.0, 2.0 * np.pi, 200)
     fig.line(np.cos(angles), np.sin(angles), line_color="gray", line_dash="dashed",
@@ -42,7 +42,7 @@ def create_spectrum_figure() -> tuple[figure, ColumnDataSource]:
         ``frequency``, ``amplitude``, ``index``, and ``growth``
     :rtype: tuple[figure, ColumnDataSource]
     """
-    fig = figure(width=460, height=340, title="DMD spectrum: |b| over frequency",
+    fig = figure(width=620, height=560, title="DMD spectrum: |b| over frequency",
                  x_range=(-1.0, 1.0))
     source = ColumnDataSource(dict(frequency=[], amplitude=[], index=[], growth=[]))
     fig.segment(x0="frequency", y0=0.0, x1="frequency", y1="amplitude", source=source,
@@ -68,7 +68,7 @@ def create_mode_figure() -> tuple[figure, ColumnDataSource]:
         ``re``, ``im``, ``abs``, and ``phase``
     :rtype: tuple[figure, ColumnDataSource]
     """
-    fig = figure(width=940, height=240, title="mode shape",
+    fig = figure(width=1000, height=280, title="mode shape",
                  extra_y_ranges={"phase": Range1d(-np.pi - 0.2, np.pi + 0.2)})
     source = ColumnDataSource(dict(s=[], re=[], im=[], abs=[], phase=[]))
     fig.line(x="s", y="re", source=source, legend_label="Re(φ)", color="#1f77b4",
@@ -96,7 +96,7 @@ def create_field_heatmap() -> tuple[figure, ColumnDataSource, LinearColorMapper,
     :rtype: tuple[figure, ColumnDataSource, LinearColorMapper, Span]
     """
     mapper = LinearColorMapper(palette=RdBu[11], low=-1.0, high=1.0)
-    fig = figure(width=460, height=280, title="field x(s, t)", x_range=(0.0, 1.0),
+    fig = figure(width=500, height=380, title="field x(s, t)", x_range=(0.0, 1.0),
                  y_range=(0.0, 1.0))
     source = ColumnDataSource(dict(image=[], x=[], y=[], dw=[], dh=[]))
     fig.image(image="image", x="x", y="y", dw="dw", dh="dh", source=source,
@@ -118,7 +118,7 @@ def create_time_curves_figure() -> tuple[figure, ColumnDataSource]:
         ``original``, ``reconstruction``, ``selected``, and ``selection``
     :rtype: tuple[figure, ColumnDataSource]
     """
-    fig = figure(width=460, height=280, title="field at current time")
+    fig = figure(width=500, height=380, title="field at current time")
     source = ColumnDataSource(dict(s=[], original=[], reconstruction=[], selected=[],
                                    selection=[]))
     fig.line(x="s", y="original", source=source, legend_label="original", color="black",

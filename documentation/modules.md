@@ -1,0 +1,139 @@
+# Modules
+
+Module-by-module reference. Signatures are abbreviated; see the docstrings for
+full details. Convention reminders: Sphinx/reST docstrings everywhere, modern type
+hints, import layout grouped and sorted by statement length, validation via
+`_check_*` methods with `assert`, every module ends with the
+`if __name__ == "__main__": pass` guard (except declaration-only files).
+
+## `src/dmdsim/signals/generator.py`
+
+Synthetic modal line fields on a uniform space-time grid.
+
+- `Mode(wavenumber, frequency, amplitude=1.0, growth_rate=0.0, phase=0.0)` — one
+  modal component contributing
+  `A·exp(σ·t)·cos(κ·s − 2πf·t + φ)`. In the DMD picture this is a conjugate
+  eigenvalue pair `λ = exp((σ ∓ 2πif)·dt)` with shapes `exp(±iκs)` and amplitudes
+  `A·exp(±iφ)/2`. Validation: finite parameters, non-negative amplitude.
+- `ModalSignal(modes, dt, n_space, n_time, dx=1.0, offset=0.0, noise_std=0.0,
+  seed=None)` — evaluates the modal superposition (plus offset and optional seeded
+  Gaussian noise) once at construction; `samples` is the real-valued field with
+  shape `(n_space, n_time)`, one snapshot per column. Properties `space` and
+  `time` return the grids.
+
+## `src/dmdsim/core/engine.py`
+
+The single wrapper around flowTorch.
+
+- `fit_dmd(samples, dt, rank=None, optimal=False, tlsq=False) -> DMDResult` —
+  converts the snapshot matrix to a torch float64 tensor (flowTorch preserves the
+  input dtype in the SVD/operator path), runs `flowtorch.analysis.DMD`, and
+  converts modes, amplitudes, and eigenvalues back to numpy. `rank=0`-style
+  "automatic" is expressed by passing `rank=None` (flowTorch optimal truncation).
+
+## `src/dmdsim/core/quantities.py`
+
+- `DMDResult(modes, amplitudes, eigvals, dt)` — container with everything the GUI
+  and synthesis need; stores complex numpy arrays (complex128) and validates
+  shapes/dt in `_check_dimensions`.
+  - attributes: `modes` `(n_space, n_modes)`, `amplitudes` `(n_modes,)`,
+    `eigvals` `(n_modes,)`, `dt`
+  - properties: `n_modes`, `n_space`, `frequencies` (= Im(log λ)/(2π·dt), Nyquist
+    bounded via principal log branch), `growth_rates` (= Re(log λ)/dt), `pairs`
+    (conjugate pair index tuples, detected from the *current* values — cache it
+    before editing)
+  - method: `mode(index)` returns the complex shape `φ_i` `(n_space,)`
+- `_PAIR_TOL = 1e-8` — relative tolerance of the pair detection (eigenvalues,
+  amplitudes, and mode shapes must all be conjugate).
+
+## `src/dmdsim/core/synth.py`
+
+- `synthesize(modes, amplitudes, eigvals, dt, n_time) -> np.ndarray` — rebuilds the
+  real field `Re{Σ φᵢ·bᵢ·λᵢᵗ}` with integer time levels; works with modified
+  quantities (the playground). The `dt` argument is currently unused by the
+  formula (integer powers of λ) and kept for API symmetry — see review finding O1.
+- `mirror_conjugates(values, pairs, sources=None) -> np.ndarray` — returns a copy
+  with `values[j] = conj(values[i])` per pair; `sources` marks dragged indices so
+  the edited member acts as the source. Used for eigenvalues and amplitudes alike.
+
+## `src/dmdsim/app/figures.py`
+
+Figure and `ColumnDataSource` builders; no application logic. Each creator returns
+the figure plus the data source (and extras where needed):
+
+- `create_eigenvalue_figure()` — eigenvalue scatter, unit circle, hover with mode
+  index/λ/f/σ; 620×560.
+- `create_spectrum_figure()` — stem-style |b| over frequency with hover; the x
+  range is set to ±Nyquist by the app; 620×560.
+- `create_mode_figure()` — Re(φ), Im(φ), |φ| on the left axis and arg(φ) on a
+  second right axis (`extra_y_ranges`); 1000×280.
+- `create_field_heatmap()` — `image` glyph of `x(s, t)` with shared
+  `LinearColorMapper` (RdBu, symmetric limits) and a `Span` as time cursor;
+  returns `(figure, source, mapper, span)`; 500×380.
+- `create_time_curves_figure()` — original, reconstruction, Σ selected modes, and
+  selected mode at the current time; 500×380.
+
+Expected source columns are documented in each docstring; the app fills them in
+`_update_*` methods.
+
+## `src/dmdsim/app/main.py`
+
+The application wiring. Uses absolute imports (Bokeh loader constraint) and
+silences flowTorch's INFO logging at import time.
+
+- Constants: `_MAX_MODE_EDITORS = 3`, `_NOISE_SEED = 42`, `_PLAY_INTERVAL_MS = 60`,
+  `_WATCHDOG_INTERVAL_MS = 500`, `_SHUTDOWN_GRACE_MS = 2000`, `_MODE_DEFAULTS`
+  (wavenumber, frequency, amplitude, growth, active per editor slot), and the four
+  `_HINT_*` inline explanations.
+- `DMDPlayground(doc)` — builds widgets, figures, layout, callbacks and runs the
+  initial fit:
+  - `_build_widgets`: per-mode editors (toggle + κ/f/A/σ spinners), grid/offset/
+    noise widgets, rank (0 = automatic), auto-rerun toggle, Run button, status div,
+    mode/time sliders, play toggle, mode checkbox group, readout div.
+  - `_build_layout`: `Tabs(tabs_location="left")` with one `TabPanel` per step —
+    "① Signal" (generators + fit controls + status), "② Eigenvalues",
+    "③ Spectrum", "④ Mode shape", "⑤ Time view". All panels stay alive while
+    hidden.
+  - `_attach_callbacks`: parameter widgets → `_on_parameter_change` (refit on
+    auto-rerun, otherwise mark stale); Run button → `_run_dmd`; sliders/checkbox →
+    `_on_view_change` (view refresh without refit); play toggle → periodic
+    callback that advances the time slider.
+  - `_run_dmd`: `_build_signal` → `fit_dmd` → cache reconstruction → update all
+    views, slider/checkbox bounds, and the status line (mode count + round-trip
+    error).
+  - `_mode_field(index, t_index)`: real contribution of one mode at one time level
+    (`Re{φᵢ·bᵢ·λᵢᵗ}`) used by the time view.
+  - `_update_*` methods: `_update_field_view` (heatmap, color limits, slider
+    bounds), `_update_quantities` (eigenvalues, spectrum, axis ranges), `_update_
+    mode_slider`/`_update_time_slider` (bounds + clamping), `_update_mode_view`,
+    `_update_mode_select` (resets selection before relabeling to avoid stale
+    indices), `_update_time_view`, `_update_readout`.
+  - `_on_play_toggle` / `_advance_time`: animation via
+    `Document.add_periodic_callback` (the returned token is kept for removal).
+- `modify_doc(doc)` — entry point for `bokeh serve` (script or directory app).
+- `main()` — entry point for the `dmdsim-app` console script: starts the server on
+  localhost, opens the browser, and arms a watchdog (Tornado `PeriodicCallback`
+  started from inside the running loop) that stops the server ~2 s after the last
+  browser session disconnects. Background: Bokeh's built-in session cleanup job
+  does not run under manual io loop management (Tornado 6.6 binds periodic jobs to
+  `IOLoop.current()` at start time), so the watchdog replaces it.
+
+## `tests/`
+
+Core coverage only (app layer intentionally untested, see PLAN.md §7):
+
+- `test_generator.py` — shapes/grids, offset-only field, analytic single-mode
+  values, seeded noise determinism, invalid parameters.
+- `test_engine.py` — recovery of known frequencies/growth rates/eigenvalues,
+  conjugate pair detection, invalid inputs.
+- `test_synth.py` — fit round trip, analytic ground-truth synthesis, effect of
+  eigenvalue modifications, conjugate mirroring semantics.
+
+## Packaging
+
+- `pyproject.toml` — setuptools, src layout, `requires-python >= 3.10`, runtime
+  deps numpy + bokeh (flowTorch installed editable from `../flowtorch`, see
+  README), console script `dmdsim-app = "dmdsim.app.main:main"`.
+- `requirements.txt` — pinned environment incl. CPU-only torch and the minimal
+  flowTorch import requirements (scipy, plotly, pandas, pillow, vtk, h5py,
+  netCDF4).

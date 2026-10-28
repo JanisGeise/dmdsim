@@ -106,6 +106,12 @@ modified = synthesize(result.modes, result.amplitudes, result.eigvals,
 The project is versioned with git; the repository is local only and is never
 pushed to any remote.
 
+## Internal documentation
+
+`documentation/` documents the internals for developers and is updated with every
+implementation step: `architecture.md` (layers, data flow, design decisions),
+`modules.md` (module-by-module reference), and `steps.md` (chronological log).
+
 ## Roadmap
 
 See `PLAN.md` for the full roadmap and status. Currently implemented: core
