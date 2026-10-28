@@ -74,7 +74,10 @@ Figure and `ColumnDataSource` builders; no application logic. Each creator retur
 the figure plus the data source (and extras where needed):
 
 - `create_eigenvalue_figure()` — eigenvalue scatter, unit circle, hover with mode
-  index/λ/f/σ; 620×560.
+  index/λ/f/σ; markers carry per-point pair colors and selection emphasis via the
+  ``color``/``size`` columns; a `PointDrawTool` (``add=False`` — drag-only)
+  makes the eigenvalues draggable; source columns ``re``, ``im``, ``index``,
+  ``frequency``, ``growth``, ``color``, and ``size``; 620×560.
 - `create_spectrum_figure()` — stem-style DMD spectrum of the mode amplitudes
   over frequency; stems and markers carry per-point stability colors (red
   growing, blue decaying, gray neutral) and selection emphasis via the
@@ -98,13 +101,16 @@ the figure plus the data source (and extras where needed):
   ranges set by the app to match the eigenvalue plane.
 - `create_signal_curve_figure()` — 1D line view of the signal x(s) at the current
   animation time on the fixed unit window; source columns ``s`` and ``value``;
-  500×380 (y-range fixed by the app).
+  returns `(figure, source, line_renderer)` (the app sets the line color per
+  theme); 500×380 (y-range fixed by the app).
 - `create_time_curves_figure()` — time view with the field along space at the
-  current time: original (black), reconstruction (gray dashed), Σ selected
-  (gray dash-dot), selected eigenvalue contribution (thicker, pair color set by
+  current time: original (black), reconstruction (gray dashed), sum of selected
+  modes (gray dash-dot), selected eigenvalue contribution (thicker, pair color set by
   the app via the returned renderer), and thin per-eigenvalue contribution
   lines in pair colors (`MultiLine` + hover) for all checked eigenvalues;
-  returns `(figure, source, pair_source, selected_renderer)`; 500×380.
+  returns `(figure, source, pair_source, selected_renderer, curve_renderers)`
+  with ``curve_renderers`` holding the theme-dependent reference lines;
+  1000×420.
 
 Expected source columns are documented in each docstring; the app fills them in
 `_update_*` methods.
@@ -129,12 +135,15 @@ background #131313):
   explanation block.
 - `info_box(text, font_size, mode)` / `info_styles(mode, font_size)` — neutral
   box for dynamic status/readout text.
-- `tab_stylesheet(mode, accent, vertical)` — `InlineStyleSheet` for a tab strip
-  (rounded buttons, hover state, accent-colored active tab; uses the
-  `.bk-tab`/`.bk-active` classes).
-- `page_stylesheet(mode)` — `GlobalInlineStyleSheet` with the page-wide widget
-  CSS (inputs, buttons, sliders, tooltips, menus); the app keeps a reference
-  and updates its `css` on theme switches.
+- `tab_css(mode, accent, vertical)` — CSS string for a tab strip (rounded
+  buttons, hover state, accent-colored active tab; uses the
+  `.bk-tab`/`.bk-active` classes); the app wraps it in an `InlineStyleSheet`
+  and updates the `css` on theme switches.
+- `page_css(mode)` — CSS string for the page-wide widget theming (inputs,
+  buttons, sliders, tooltips, menus); the app wraps it in a
+  `GlobalInlineStyleSheet`. Properties competing with bokeh's own widget
+  stylesheets use ``!important`` (bokeh's win otherwise — the white-input-box
+  bug).
 
 .. note:: Spinner tooltip mechanics
     Widget `description` must be a `bokeh.models.Tooltip` instance to render the
@@ -156,55 +165,80 @@ background #131313):
 The application wiring. Uses absolute imports (Bokeh loader constraint) and
 silences flowTorch's INFO logging at import time.
 
-- Constants: `_MAX_MODE_EDITORS = 3`, `_NOISE_SEED = 42`, `_PLAY_INTERVAL_MS = 60`,
-  `_WATCHDOG_INTERVAL_MS = 500`, `_SHUTDOWN_GRACE_MS = 2000`, `_MODE_DEFAULTS`
-  (wavenumber, frequency, amplitude, growth, active per editor slot), and the
-  `_HINT_*` inline explanations (per panel and per mode quantity).
-- `DMDPlayground(doc)` — builds widgets, figures, layout, callbacks and runs the
-  initial fit:
-  - `_build_widgets`: automatic-composition spinners (Nₘ, f_min, f_max, offset),
-    grid/offset/noise widgets, rank (0 = automatic), auto-rerun toggle, styled Run
-    button, status info box, shared mode slider, TWO synchronized time sliders in
-    **seconds** ("t [s]", range [0, (n_time − 1)·dt], step = Δt) and play toggles
-    (signal animation in the start menu, reconstruction view), mode checkbox
-    group, readout and propagation-direction info boxes.
-  - `_build_layout`: `Tabs(tabs_location="left")` with one `TabPanel` per step —
-    "1 · Signal" (start menu: modal composition + grid & noise on the left,
-    1D signal animation with slider/play on the right, DMD fit + status below),
-    "2 · Eigenvalues", "3 · Spectrum", "4 · Mode shapes" (nested
-    horizontal sub-tabs: Real part / Imaginary part / Phase / Propagation
-    direction, sharing the mode slider), "5 · Reconstruction". All panels stay
-    alive while hidden. Figures are color-coded per step; the main sidebar and
-    the nested strip carry separate tab stylesheets (vertical/horizontal).
-  - `_attach_callbacks`: parameter widgets → `_on_parameter_change` (refit on
-    auto-rerun, otherwise mark stale); Run button → `_run_dmd`; mode slider and
-    checkbox → `_on_view_change` (view refresh without refit); both time sliders
-    → `_on_time_change` (two-way sync + time view refresh); both play toggles →
-    `_on_recon_play`/`_on_signal_play` → `_set_playback` (synced labels/states,
-    one shared periodic callback advancing the time).
-  - `_run_dmd`: `_build_signal` (uses `generate_modes`) → rank resolution (0 =
-    automatic: exact rank 2·n_modes (+1 with offset) of the clean composition;
-    flowTorch optimal truncation when noise is on) → `fit_dmd` wrapped in
-    try/except (`AssertionError`, `IndexError`, `RuntimeError`, `ValueError`) so
-    `torch.linalg` failures land as a red message in the status box while the
-    previous views stay → cache reconstruction → update all views, slider/
-    checkbox bounds, and the info box (rank automatic + round-trip error when
-    automatic, otherwise only the error).
+- State: `_theme` (``"light"``/``"dark"``), `_cached_pairs`/`_fit_amplitudes`/
+  `_fit_eigvals` (editing baselines cached per fit and on re-sort),
+  `_locked_edit_indices` (unit-circle-locked drags are temporary and reset when
+  another eigenvalue is selected), `_drag_cache` (marker positions for drag
+  detection), `_themed_divs` (registered theme-dependent elements), and the
+  stored stylesheets `_page_sheet`/`_tab_sheet`/`_mode_tab_sheet` (created once;
+  a theme switch regenerates their `css`).
+- `_build_widgets`: automatic-composition spinners (Nₘ, f_min, f_max, offset),
+  time/noise widgets, rank (0 = automatic), auto-rerun select, styled Run
+  button, status info box, shared mode sliders, FOUR synchronized time sliders
+  in **seconds** ("t [s]", range [0, (n_time − 1)·dt], step = Δt) and play
+  toggles (panels 1, 2, 4, 5), mode checkbox group, readout and
+  propagation-direction info boxes, |b| scale spinner, unit-circle lock toggle.
+  Persistent info boxes are registered for theming; the theme stylesheets are
+  created here.
+- `_build_layout`: application bar (title + dark-mode `Switch`) above
+  `Tabs(tabs_location="left")`: "Start" (default landing tab: DMD in a nutshell,
+  workflow rows with per-step-accent Open buttons navigating via `_make_goto`,
+  tips), "1 · Signal" (composition + grid/noise + DMD fit on the left, signal
+  animation on the right), "2 · Eigenvalues" (one control row: eigenvalue
+  number, sort, |b| scale, unit-circle lock; eigenvalue plane + λᵗ dynamics),
+  "3 · Spectrum", "4 · Mode shapes" (nested sub-tabs: Real part / Imaginary
+  part / Phase / Propagation direction with its own time slider + play), 
+  "5 · Reconstruction". All panels stay alive while hidden; the layout root,
+  main tabs, and nested tabs are stored for in-place theming.
+- `_attach_callbacks`: parameter widgets → `_on_parameter_change` (refit on
+  auto-rerun, otherwise mark stale); Run button → `_run_dmd`; eigenvalue-number
+  sliders → `_on_mode_slider_change` (two-way sync); checkbox →
+  `_on_view_change`; time sliders (four) → `_on_time_change` (two-way sync);
+  play toggles → `_set_playback` (synced labels/states, one shared periodic
+  callback); eigenvalue source data → `_on_eigenvalue_drag`; |b| scale →
+  `_on_amplitude_change`; sort select → `_on_sort_change`.
+  - `_run_dmd`: `_build_signal` (uses `generate_modes`) → constant-signal guard
+    (friendly message) → rank resolution (0 = automatic: exact rank 2·n_modes
+    (+1 with offset) of the clean composition; flowTorch optimal truncation when
+    noise is on) → `fit_dmd` wrapped in try/except (`AssertionError`,
+    `IndexError`, `RuntimeError`, `ValueError`) so `torch.linalg` failures land
+    as a red message in the status box while the previous views stay → sort by
+    the selected criterion → cache pairs/fit amplitudes/fit eigenvalues →
+    recompute reconstruction → update all views and the info box (rank
+    automatic + round-trip error when automatic, otherwise only the error).
   - `_mode_field(index, t_index)`: real contribution of one mode at one time level
     (`Re{φᵢ·bᵢ·λᵢᵗ}`) used by the time view.
-  - `_update_*` methods: `_update_field_view` (signal animation heatmap + time
-    view heatmap, color limits, slider bounds), `_update_quantities` (eigenvalue
-    plane + dynamics contexts and ranges), `_update_spectrum` (stability colors,
-    selection emphasis, Nyquist spans and axis), `_update_mode_slider`/
-    `_update_time_slider` (bounds + clamping of both sliders), `_update_mode_view`
-    (fills the four single-quantity mode sources), `_update_direction_readout`
-    (phase slope κ → wavelength, phase velocity, travel direction with arrow),
-    `_update_mode_select` (resets selection before relabeling to avoid stale
-    indices), `_update_time_view` (both time cursors + curves + λᵗ trail),
-    `_update_readout`.
-  - `_on_time_change` / `_set_playback` / `_advance_time`: two-way slider sync
+  - `_pair_colors()`: one color per conjugate pair (theme-dependent palette;
+    unpaired modes gray) shared by eigenvalue plane, dynamics markers,
+    spectrum, and reconstruction.
+  - `_update_*` methods: `_update_field_view` (fixed y-ranges for both animated
+    line plots), `_update_quantities` (editing-state cache + marker/spectrum
+    refresh), `_update_eigenvalue_markers` (stability pair colors + selection
+    emphasis in both complex-plane plots; guarded against the drag callback),
+    `_update_spectrum` (pair colors, selection emphasis, Nyquist spans and
+    axis), `_update_mode_slider`/`_update_time_slider` (bounds + clamping of
+    the synced sliders), `_update_mode_view` (fills the three single-quantity
+    mode sources incl. unwrapped phase), `_update_direction_view` (traveling
+    wave at the current time, fixed envelope y-range, direction arrow, and the
+    κ/λ_w/c readout), `_update_mode_select` (resets selection before
+    relabeling to avoid stale indices), `_update_time_view` (curves + per-
+    eigenvalue pair lines + selected-line color + λᵗ trail), `_update_readout`.
+  - `_on_eigenvalue_drag`: applies dragged eigenvalues with conjugate
+    mirroring (cached pairs), restores the source after backspace deletions,
+    recomputes the reconstruction, and refreshes spectrum + time views; the
+    status box reports the max deviation from the original.
+  - `_on_amplitude_change`: scales the selected eigenvalue's amplitude (and its
+    conjugate partner) relative to the fitted baseline; clamps typed values.
+  - `_on_theme_switch` / `_apply_theme`: in-place theming — restyles the
+    registered figures and Divs (headers, hints, info boxes, workflow entries,
+    buttons), updates the theme-dependent renderer colors, and regenerates the
+    stored stylesheets' `css`. No rebuild: the active panel and all widget
+    states are preserved (`doc.clear()` is forbidden — it wipes session
+    callbacks).
+  - `_on_time_change` / `_set_playback` / `_advance_time`: four-way slider sync
     with a re-entrancy guard and one shared animation via
     `Document.add_periodic_callback` (the returned token is kept for removal).
+  - `_make_goto(index)`: navigation callback factory for the Start panel.
 - `modify_doc(doc)` — entry point for `bokeh serve` (script or directory app).
 - `main()` — entry point for the `dmdsim-app` console script: starts the server on
   localhost, opens the browser, and arms a watchdog (Tornado `PeriodicCallback`
@@ -218,9 +252,11 @@ silences flowTorch's INFO logging at import time.
 Core coverage only (app layer intentionally untested, see PLAN.md §7):
 
 - `test_generator.py` — shapes/grids, offset-only field, analytic single-mode
-  values, seeded noise determinism, invalid parameters.
+  values, seeded noise determinism, invalid parameters, automatic composition
+  (`generate_modes`: determinism, bounds, dispersion, invalid args).
 - `test_engine.py` — recovery of known frequencies/growth rates/eigenvalues,
-  conjugate pair detection, invalid inputs.
+  conjugate pair detection, sorting criteria (amplitude/integral/frequency,
+  reconstruction invariance), invalid inputs.
 - `test_synth.py` — fit round trip, analytic ground-truth synthesis, effect of
   eigenvalue modifications, conjugate mirroring semantics.
 

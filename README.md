@@ -49,13 +49,34 @@ python3 -m venv .venv
 .venv/bin/bokeh serve src/dmdsim/app
 ```
 
-The left panel configures the synthetic signal (up to three modes with wavenumber κ,
-frequency f, amplitude A, and growth rate σ; grid; offset; optional seeded noise) and
-the DMD rank. With *auto-rerun* active, every change refits and updates all views:
-eigenvalue plane, DMD spectrum, mode shape viewer (Re/Im/|φ|/arg φ), and the time view
-(space-time heatmap with time cursor plus field curves and play animation). Inline
-hints under the plots explain each quantity. Deselect modes in the checkbox row to
-study their individual contribution to the reconstruction.
+The app opens on the **Start** panel: a "DMD in a nutshell" recap of the lecture
+concepts (snapshot matrix X → time-shifted X′ → SVD → eigenvalue problem → modes
+φ, amplitudes b, eigenvalues λ → reconstruction) and a workflow list with buttons
+jumping to the five step panels:
+
+- **1 · Signal** — design the synthetic signal (number of modes Nₘ, frequency
+  range fₘᵢₙ–fₘₐₓ, offset, optional seeded noise) and run the DMD fit
+  (rank 0 = automatic; auto-rerun refits on every change). The signal animation
+  plays the created waves on the fixed window x ∈ [0, 1].
+- **2 · Eigenvalues** — the fitted eigenvalues around the unit circle
+  (radius = growth/decay, angle = frequency). **Drag them**: the conjugate
+  partner mirrors automatically and the reconstruction updates live
+  (|λ| = 1 keeps modes neutral via the "lock to unit circle" toggle; the |b|
+  scale spinner amplifies or silences the selected mode). The λᵗ dynamics plot
+  shows the selected mode's spiral animated in time.
+- **3 · Spectrum** — each mode's amplitude over frequency; conjugate pairs share
+  their color; dashed lines mark the Nyquist limits.
+- **4 · Mode shapes** — Re/Im/Phase of each mode (unwrapped phase explained) and
+  the propagation direction with an animated traveling wave, wavelength, and
+  phase velocity.
+- **5 · Reconstruction** — the rebuild vs the original: uncheck eigenvalues to
+  see each mode's contribution (thin lines in pair colors) and how the
+  reconstruction changes.
+
+A **light/dark theme** switch sits in the application bar. Inline hints under
+the plots explain each quantity; every parameter has a "?" tooltip with meaning
+and allowed range. All time sliders and play buttons across the panels drive
+the same shared time cursor.
 
 The `dmdsim-app` server stops itself automatically about two seconds after the last
 browser tab or window is closed. The manual `bokeh serve` variant keeps running until

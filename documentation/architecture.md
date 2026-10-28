@@ -48,14 +48,23 @@ Nothing in the core knows about Bokeh; nothing in `app` implements math.
    checkboxes, mode index slider) call `_update_mode_view` / `_update_time_view`
    only — **no refit**. The reconstruction is sliced from the cached field.
 
-The layout is a `Tabs` widget with `tabs_location="left"`; each step
-(1 · Signal, 2 · Eigenvalues, 3 · Spectrum, 4 · Mode shapes, 5 · Reconstruction)
-is one `TabPanel`. All panels stay alive while hidden, so widget state survives
-tab switching. The Signal panel is the start menu (create the signal, animate it,
-run the fit) and ends with a live signal animation; the Mode shapes panel nests
-horizontal sub-tabs (Real part / Imaginary part / Phase / Propagation direction)
-that share one mode slider. The Signal and Reconstruction views use two
-synchronized time sliders/play toggles driving one shared time cursor.
+The layout is a `Tabs` widget with `tabs_location="left"` inside an application
+bar (title + light/dark theme `Switch`); the tabs are ordered **Start** (default
+landing tab: DMD in a nutshell, workflow navigation with Open buttons, tips),
+**1 · Signal**, **2 · Eigenvalues**, **3 · Spectrum**, **4 · Mode shapes**
+(nested sub-tabs: Real part / Imaginary part / Phase / Propagation direction),
+and **5 · Reconstruction**. All panels stay alive while hidden, so widget state
+survives tab switching. Four time sliders and play toggles (panels 1, 2, 4, 5)
+are two-way synchronized and drive one shared time cursor.
+
+**Editing loop (M3):** dragging an eigenvalue in the plane (PointDrawTool)
+commits once per gesture; `_on_eigenvalue_drag` writes the new eigenvalues into
+the result with conjugate mirroring (cached pair structure), recomputes the
+reconstruction via `synthesize`, and refreshes spectrum, λᵗ spiral, direction
+view, and readout — the same feedback path is used by the |b| scale spinner.
+Edits apply to the current fit; a refit restores the fitted values. Locked
+drags (unit-circle lock) are temporary experiments and reset when another
+eigenvalue is selected.
 
 ## The playground math
 
@@ -91,12 +100,15 @@ Editing semantics (used by the GUI and available in the core):
 | Unit-norm mode shapes | flowTorch returns modes normalized to unit norm; amplitudes `|b|` scale accordingly (e.g., a constant field of 2.0 on 64 points gives \|b\| = 16) — documented to avoid confusion in the GUI |
 | Absolute imports in `app/` | Bokeh's script/directory loader executes `main.py` outside the package context; relative imports would break under `bokeh serve` |
 | Watchdog server shutdown | Bokeh's built-in session cleanup job never fires when the io loop is managed manually (Tornado 6.6 binds periodic jobs to `IOLoop.current()` at start time, not to the server's private loop); the app therefore runs its own watchdog that stops the server ~2 s after the last session disconnects |
-| `Tabs(tabs_location="left")` for the GUI | native left sidebar with one submenu per step; panels stay alive while hidden |
+| `Tabs(tabs_location="left")` + Start panel | the sidebar holds a Start landing tab (DMD in a nutshell + workflow navigation) followed by the numbered steps; panels stay alive while hidden |
+| Pair colors across views | each conjugate eigenvalue pair shares one categorical color (`PAIR_PALETTE`, brighter `PAIR_PALETTE_DARK` in dark mode) so a physical mode is traceable across eigenvalue plane, λᵗ dynamics, spectrum, and reconstruction; unpaired modes are gray |
+| In-place theming | light/dark themes are applied without rebuilding: figures/Divs are restyled from `THEMES` and the stored stylesheets' `css` strings are regenerated. `doc.clear()` is forbidden (it wipes session callbacks); a `GlobalInlineStyleSheet` is injected once, so theme switches **recreate and re-attach** the stylesheet objects |
+| Editing semantics | dragged eigenvalues and |b| scale edits apply to the current fit and are fed back to the reconstruction live; unit-circle-locked drags are temporary (reset on eigenvalue selection); a refit restores the fitted values |
 
 ## Roadmap position
 
-See `PLAN.md` for milestones. M0 (setup), M1 (core) and M2 (GUI) are done; the
-project is currently in the **GUI revise phase** — panel-by-panel iteration on
-user feedback with vision-based screenshot reviews (M2.1–M2.9). The next
-milestone after the revision is M3 (interactive eigenvalue dragging), followed
-by an improvement round (M4) and 2D OpenFOAM data (M5) later.
+See `PLAN.md` for milestones. M0 (setup), M1 (core), M2 (GUI), the GUI revise
+phase (M2R), M3 (interactive eigenvalue editing) and M4 (UX revision: start
+panel, light/dark themes, beginner labels) are done. The dark-mode polish and
+real 2D OpenFOAM data (M5) are deferred in the backlog; DMD variants and
+session save/load are further backlog items.
