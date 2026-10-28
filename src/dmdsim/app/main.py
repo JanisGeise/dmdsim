@@ -11,7 +11,7 @@ from bokeh.server.server import Server
 from bokeh.application import Application
 from bokeh.server.callbacks import PeriodicCallback
 from bokeh.application.handlers import FunctionHandler
-from bokeh.models import Button, CheckboxGroup, Div, Slider, Spinner, TabPanel, Tabs, Toggle
+from bokeh.models import Button, CheckboxGroup, Slider, Spinner, TabPanel, Tabs, Toggle
 from tornado.ioloop import PeriodicCallback as TornadoPeriodicCallback
 
 from dmdsim.core.engine import fit_dmd
@@ -22,6 +22,7 @@ from dmdsim.core.synth import mirror_conjugates, synthesize
 from dmdsim.app.figures import (create_eigenvalue_figure, create_field_heatmap,
                                 create_mode_figure, create_spectrum_figure,
                                 create_time_curves_figure)
+from dmdsim.app.styling import header, hint, info_box, style_figure, step_colors, tab_stylesheet
 
 # keep the flowTorch info messages out of the application output
 logging.getLogger("flowtorch").setLevel(logging.WARNING)
@@ -122,7 +123,14 @@ class DMDPlayground:
                                      high=64, step=1, width=140)
         self._auto_toggle = Toggle(label="auto-rerun on change", active=True, width=160)
         self._run_button = Button(label="Run DMD", button_type="primary", width=100)
-        self._status_div = Div(text="", width=460)
+        self._run_button.styles = {
+            "background-color": step_colors("setup")[1],
+            "color": "#ffffff",
+            "border": "none",
+            "border-radius": "6px",
+            "font-weight": "500",
+        }
+        self._status_div = info_box()
         # interactive elements of the quantity views
         self._mode_slider = Slider(title="mode index", start=0, end=0, value=0, step=1,
                                    width=300)
@@ -130,7 +138,7 @@ class DMDPlayground:
                                    width=300)
         self._play_toggle = Toggle(label="▶ play", active=False, width=100)
         self._mode_select = CheckboxGroup(labels=[], active=[], inline=True)
-        self._readout_div = Div(text="", width=460)
+        self._readout_div = info_box()
 
     def _build_figures(self) -> None:
         """
@@ -147,6 +155,13 @@ class DMDPlayground:
         (self._preview_figure, self._preview_source, self._preview_mapper,
          _) = create_field_heatmap(show_cursor=False, title="signal preview x(s, t)")
         self._time_figure, self._time_source = create_time_curves_figure()
+        # color-code the figures by step for visual distinction
+        style_figure(self._eigenvalue_figure, "eigenvalues")
+        style_figure(self._spectrum_figure, "spectrum")
+        style_figure(self._mode_figure, "modes")
+        style_figure(self._heatmap_figure, "reconstruction")
+        style_figure(self._time_figure, "reconstruction")
+        style_figure(self._preview_figure, "setup")
 
     def _build_layout(self) -> None:
         """
@@ -163,29 +178,33 @@ class DMDPlayground:
                          self._frequency_spinners[i], self._amplitude_spinners[i],
                          self._growth_spinners[i]) for i in range(_MAX_MODE_EDITORS)]
         setup_panel = column(
-            Div(text="<b>Modal components</b>"),
+            header("Modal components", "setup"),
             *mode_rows,
-            Div(text="<b>Grid &amp; noise</b>"),
+            header("Grid &amp; noise", "setup"),
             row(self._dt_spinner, self._dx_spinner, self._n_space_spinner,
                 self._n_time_spinner),
             row(self._offset_spinner, self._noise_toggle, self._noise_spinner),
-            Div(text="<b>DMD fit</b>"),
+            header("DMD fit", "setup"),
             row(self._rank_spinner, self._auto_toggle, self._run_button),
             self._status_div,
-            Div(text="<b>Signal preview</b>"),
+            header("Signal preview", "setup"),
             self._preview_figure,
-            Div(text=_HINT_PREVIEW, width=500),
+            hint(_HINT_PREVIEW),
             width=1000,
+            spacing=8,
         )
-        eigen_panel = column(self._eigenvalue_figure, Div(text=_HINT_EIGENVALUES, width=620))
-        spectrum_panel = column(self._spectrum_figure, Div(text=_HINT_SPECTRUM, width=620))
+        eigen_panel = column(self._eigenvalue_figure, hint(_HINT_EIGENVALUES, width=620),
+                             spacing=8)
+        spectrum_panel = column(self._spectrum_figure, hint(_HINT_SPECTRUM, width=620),
+                                spacing=8)
         mode_panel = column(self._mode_slider, self._mode_figure,
-                            Div(text=_HINT_MODE, width=1000))
+                            hint(_HINT_MODE, width=1000), spacing=8)
         time_panel = column(
             row(self._time_slider, self._play_toggle),
             self._mode_select,
             row(self._heatmap_figure, self._time_figure),
-            row(Div(text=_HINT_TIME, width=500), self._readout_div),
+            row(hint(_HINT_TIME, width=500), self._readout_div),
+            spacing=8,
         )
         tabs = Tabs(tabs=[
             TabPanel(child=setup_panel, title="Setup"),
@@ -193,7 +212,7 @@ class DMDPlayground:
             TabPanel(child=spectrum_panel, title="Spectrum"),
             TabPanel(child=mode_panel, title="Mode shapes"),
             TabPanel(child=time_panel, title="Reconstruction"),
-        ], tabs_location="left")
+        ], tabs_location="left", stylesheets=[tab_stylesheet()])
         self._doc.add_root(tabs)
 
     def _attach_callbacks(self) -> None:

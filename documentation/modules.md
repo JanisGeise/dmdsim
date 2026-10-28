@@ -77,6 +77,23 @@ the figure plus the data source (and extras where needed):
 Expected source columns are documented in each docstring; the app fills them in
 `_update_*` methods.
 
+## `src/dmdsim/app/styling.py`
+
+Central visual styling of the application (modern light theme, one accent color
+per step for visual distinction):
+
+- `_STEP_COLORS` — per-step `(tint, accent)` pairs: setup blue, eigenvalues green,
+  spectrum amber, modes purple, reconstruction red.
+- `step_colors(step)` — accessor for the pair above.
+- `style_figure(fig, step)` — white plot area on the tinted panel background,
+  accent-colored bold title, muted gray axes/grid/legend (legend styling only
+  applied when the figure actually has legends).
+- `header(text, step)` — colored section header element for panels.
+- `hint(text, width=None)` — muted inline explanation block.
+- `info_box(text="")` — neutral box for dynamic status/readout text.
+- `tab_stylesheet()` — `InlineStyleSheet` for the tab strip (rounded buttons,
+  hover state, setup-blue active tab; uses the `.bk-tab`/`.bk-active` classes).
+
 ## `src/dmdsim/app/main.py`
 
 The application wiring. Uses absolute imports (Bokeh loader constraint) and
@@ -89,12 +106,15 @@ silences flowTorch's INFO logging at import time.
 - `DMDPlayground(doc)` — builds widgets, figures, layout, callbacks and runs the
   initial fit:
   - `_build_widgets`: per-mode editors (toggle + κ/f/A/σ spinners), grid/offset/
-    noise widgets, rank (0 = automatic), auto-rerun toggle, Run button, status div,
-    mode/time sliders, play toggle, mode checkbox group, readout div.
+    noise widgets, rank (0 = automatic), auto-rerun toggle, styled Run button,
+    status info box, mode/time sliders, play toggle, mode checkbox group, readout
+    info box.
   - `_build_layout`: `Tabs(tabs_location="left")` with one `TabPanel` per step —
     "Setup" (modal components, grid & noise, DMD fit, status, live signal
     preview), "Eigenvalues", "Spectrum", "Mode shapes", "Reconstruction". All
-    panels stay alive while hidden.
+    panels stay alive while hidden. Figures are color-coded per step and section
+    headers/hints/info boxes come from `styling.py`; the tab strip carries a
+    custom stylesheet.
   - `_attach_callbacks`: parameter widgets → `_on_parameter_change` (refit on
     auto-rerun, otherwise mark stale); Run button → `_run_dmd`; sliders/checkbox →
     `_on_view_change` (view refresh without refit); play toggle → periodic

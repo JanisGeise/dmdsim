@@ -86,3 +86,18 @@ modules change.
   the preview reuses the builder without the time cursor).
 - Setup panel reorganized with clear section headers: Modal components, Grid &
   noise, DMD fit, Signal preview.
+
+## M2.4 — modern styling with per-step accent colors (2026-10-28)
+
+- User feedback: the GUI should look more modern and the panels should be
+  visually distinguishable through color.
+- New `app/styling.py`: per-step `(tint, accent)` palette (setup blue, eigenvalues
+  green, spectrum amber, modes purple, reconstruction red); `style_figure` (white
+  plot area on tinted panel background, accent title, muted axes/grid/legend),
+  `header`, `hint`, `info_box` element factories, and a tab strip stylesheet
+  (rounded buttons, hover state, blue active tab).
+- Applied in `main.py`: color-coded figures, styled section headers and hints,
+  info-box status/readout, accent-colored Run button, panel spacing.
+- Note for a future dark mode (backlog): the palette lives in one module, so a
+  dark variant can be introduced by swapping `_STEP_COLORS` and the neutral
+  constants there.
