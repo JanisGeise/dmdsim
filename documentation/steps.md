@@ -991,3 +991,30 @@ Housekeeping pass before the next feature:
   view was used) replaced by a dedicated `create_phase_figure()`.
 - Verification: pytest 15 passed; `run/verify_gui_polish.py` all green under
   `-W error::UserWarning`.
+
+## GitHub publication prep (2026-10-28)
+
+The repository is prepared for its initial push to GitHub (private first,
+public later):
+
+- **License**: `LICENSE` added with the canonical GPL-3.0 text; the project
+  is GPL-3.0-or-later — required-compatible with the flowTorch import
+  dependency (flowTorch is GPL-3.0, and `dmdsim.core.engine` delegates all
+  DMD math to it). `pyproject.toml` declares the SPDX expression
+  `license = "GPL-3.0-or-later"` with `license-files = ["LICENSE"]`
+  (PEP 639; setuptools 78).
+- **README**: the "Repository" section now names the GitHub remote
+  (github.com/JanisGeise/dmdsim) instead of "local only, never pushed"; a
+  "License" section documents GPL-3.0-or-later and the flowTorch licensing;
+  the Roadmap section no longer references the untracked `PLAN.md` (kept
+  private) and gained the missing M4d (space–time heatmap) entry.
+- **History scrub** (`git-filter-repo`, 22 commits rewritten): `.idea/`
+  (an old `workspace.xml` leak contained local `/home/…` paths), `PLAN.md`,
+  and `examples/` dropped from all history — the latter two because they are
+  deliberately untracked and would otherwise stay publicly downloadable via
+  old commits. A pre-rewrite bundle was kept at
+  `/tmp/opencode/dmdsim-pre-rewrite.bundle`; the six commit hashes referenced
+  in `PLAN.md` were remapped from the filter-repo commit map.
+- **Access**: dedicated ed25519 SSH key (`~/.ssh/github`) plus a minimal
+  `~/.ssh/config` `Host github.com` block; the empty private repository is
+  created in the browser (no API token needed), then `main` is pushed.
