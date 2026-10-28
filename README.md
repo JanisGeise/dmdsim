@@ -148,8 +148,15 @@ modified = synthesize(result.modes, result.amplitudes, result.eigvals,
 
 ## Repository
 
-The project is versioned with git; the repository is local only and is never
-pushed to any remote.
+Hosted on GitHub: <https://github.com/JanisGeise/dmdsim> (private during
+development; intended to be made public later).
+
+## License
+
+`dmdsim` is licensed under the GNU General Public License v3.0 or later
+(see `LICENSE`). The DMD computations delegate to
+[flowTorch](https://github.com/FlowModelingControl/flowtorch), which is
+GPL-3.0 licensed as well.
 
 ## Internal documentation
 
@@ -159,12 +166,13 @@ implementation step: `architecture.md` (layers, data flow, design decisions),
 
 ## Roadmap
 
-See `PLAN.md` for the full roadmap and status. Done: the core library (M1), the
-Bokeh GUI (M2), the GUI revise phase (M2R), interactive eigenvalue editing (M3),
+Current status: done are the core library (M1), the Bokeh GUI (M2), the
+GUI revise phase (M2R), interactive eigenvalue editing (M3),
 the UX revision (M4: start panel, light/dark themes, beginner labels), the GUI
 polish round (M4b: per-panel resets, growth-direction plane, travel-direction
-triangles), and the first teaching-concept feature (M4c: the traveling↔standing
-morph with the combined quadrature view). Next candidates (teaching concepts):
+triangles), the first teaching-concept feature (M4c: the traveling↔standing
+morph with the combined quadrature view), and the space–time heatmap (M4d).
+Next candidates (teaching concepts):
 arg(b) phasor editing, phase-slope (κ) editing, an x–t heatmap, a singular-value
 scree plot, guided scenario presets, and a manual signal composition — plus the
 deferred backlog (2D OpenFOAM support via flowTorch (M5), dark-mode completion,
