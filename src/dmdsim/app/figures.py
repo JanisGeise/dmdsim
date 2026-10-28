@@ -5,7 +5,7 @@ import numpy as np
 
 from bokeh.palettes import RdBu
 from bokeh.plotting import figure
-from bokeh.models import ColorBar, ColumnDataSource, HoverTool, LinearAxis, LinearColorMapper, Range1d, Span
+from bokeh.models import ColorBar, ColumnDataSource, HoverTool, LinearColorMapper, Range1d, Span
 
 
 def create_eigenvalue_figure() -> tuple[figure, ColumnDataSource]:
@@ -60,30 +60,38 @@ def create_spectrum_figure() -> tuple[figure, ColumnDataSource]:
     return fig, source
 
 
-def create_mode_figure() -> tuple[figure, ColumnDataSource]:
-    """
-    Create the mode shape viewer with real, imaginary, magnitude, and phase curves.
+_MODE_FIGURE_SPECS = {
+    "real": ("Re(φ) over space", "Re(φ)", "#1f77b4"),
+    "imag": ("Im(φ) over space", "Im(φ)", "#ff7f0e"),
+    "phase": ("arg(φ) over space", "arg(φ) [rad]", "#d62728"),
+    "direction": ("arg(φ) — propagation direction", "arg(φ) [rad]", "#d62728"),
+}
 
-    :return: figure and the data source; the source expects the columns ``s``,
-        ``re``, ``im``, ``abs``, and ``phase``
+
+def create_mode_component_figure(quantity: str) -> tuple[figure, ColumnDataSource]:
+    """
+    Create a single-quantity mode shape figure.
+
+    :param quantity: quantity to display; one of ``real``, ``imag``, ``phase``,
+        or ``direction`` (the direction view shows the phase with a focus on the
+        propagation analysis)
+    :type quantity: str
+    :return: figure and the data source; the source expects the columns ``s``
+        and ``value``
     :rtype: tuple[figure, ColumnDataSource]
     """
-    fig = figure(width=1000, height=280, title="mode shape",
-                 extra_y_ranges={"phase": Range1d(-np.pi - 0.2, np.pi + 0.2)})
-    source = ColumnDataSource(dict(s=[], re=[], im=[], abs=[], phase=[]))
-    fig.line(x="s", y="re", source=source, legend_label="Re(φ)", color="#1f77b4",
-             line_width=2)
-    fig.line(x="s", y="im", source=source, legend_label="Im(φ)", color="#ff7f0e",
-             line_width=2)
-    fig.line(x="s", y="abs", source=source, legend_label="|φ|", color="#2ca02c",
-             line_width=2, line_dash="dashed")
-    fig.line(x="s", y="phase", source=source, legend_label="arg(φ)", color="#d62728",
-             line_width=2, y_range_name="phase")
-    fig.add_layout(LinearAxis(y_range_name="phase", axis_label="arg(φ) [rad]"), "right")
-    fig.legend.location = "top_left"
-    fig.legend.click_policy = "hide"
+    assert quantity in _MODE_FIGURE_SPECS, (
+        f"Unknown mode quantity {quantity!r}, must be one of: {sorted(_MODE_FIGURE_SPECS)}")
+    title, y_label, color = _MODE_FIGURE_SPECS[quantity]
+    if quantity in ("phase", "direction"):
+        fig = figure(width=1000, height=420, title=title,
+                     y_range=Range1d(-np.pi - 0.2, np.pi + 0.2))
+    else:
+        fig = figure(width=1000, height=420, title=title)
+    source = ColumnDataSource(dict(s=[], value=[]))
+    fig.line(x="s", y="value", source=source, color=color, line_width=2)
     fig.xaxis.axis_label = "s"
-    fig.yaxis.axis_label = "φ"
+    fig.yaxis.axis_label = y_label
     return fig, source
 
 

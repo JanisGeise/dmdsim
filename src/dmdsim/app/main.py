@@ -20,7 +20,7 @@ from dmdsim.signals.generator import Mode, ModalSignal
 from dmdsim.core.synth import mirror_conjugates, synthesize
 
 from dmdsim.app.figures import (create_eigenvalue_figure, create_field_heatmap,
-                                create_mode_figure, create_spectrum_figure,
+                                create_mode_component_figure, create_spectrum_figure,
                                 create_time_curves_figure)
 from dmdsim.app.styling import header, hint, info_box, style_figure, step_colors, tab_stylesheet
 
@@ -51,8 +51,15 @@ _HINT_MODE = ("Complex spatial shape φ(s): Re and Im form the wave profile, |φ
 _HINT_TIME = ("The cursor in the heatmap marks the current time of the curves on the "
               "right. The reconstruction is Σ φᵢ·bᵢ·λᵢᵗ; compare it against the "
               "original field.")
-_HINT_PREVIEW = ("Preview of the current synthetic signal x(s, t); it updates with "
-                 "every DMD fit.")
+_HINT_SIGNAL_ANIMATION = ("Animation of the created signal x(s, t): press play or "
+                          "drag the time slider; the cursor follows the current time. "
+                          "The same time cursor drives the reconstruction view.")
+_HINT_REAL = ("Real part of the mode shape φ(s); for a traveling wave it is a cosine "
+              "whose zero crossings are spaced by half a wavelength.")
+_HINT_IMAG = ("Imaginary part of the mode shape φ(s); real and imaginary part "
+              "together encode amplitude and spatial phase of the wave.")
+_HINT_PHASE = ("arg(φ) in radians; its slope is the local wavenumber κ and a constant "
+               "offset is the spatial phase shift of the wave.")
 
 
 class DMDPlayground:
@@ -75,6 +82,8 @@ class DMDPlayground:
         self._result: DMDResult | None = None
         self._reconstruction: np.ndarray | None = None
         self._periodic_callback: PeriodicCallback | None = None
+        self._syncing_time = False
+        self._syncing_play = False
         self._build_widgets()
         self._build_figures()
         self._build_layout()
@@ -137,10 +146,14 @@ class DMDPlayground:
         self._time_slider = Slider(title="time index", start=0, end=1, value=0, step=1,
                                    width=300)
         self._play_toggle = Toggle(label="▶ play", active=False, width=100)
+        self._signal_time_slider = Slider(title="time index", start=0, end=1, value=0,
+                                          step=1, width=300)
+        self._signal_play_toggle = Toggle(label="▶ play", active=False, width=100)
         self._mode_select = CheckboxGroup(labels=[], active=[], inline=True)
         # a little extra air below the play/slider row improves the grouping
         self._mode_select.styles = {"margin-top": "6px"}
         self._readout_div = info_box()
+        self._direction_div = info_box()
 
     def _build_figures(self) -> None:
         """
@@ -151,16 +164,20 @@ class DMDPlayground:
         """
         self._eigenvalue_figure, self._eigenvalue_source = create_eigenvalue_figure()
         self._spectrum_figure, self._spectrum_source = create_spectrum_figure()
-        self._mode_figure, self._mode_source = create_mode_figure()
         (self._heatmap_figure, self._heatmap_source, self._color_mapper,
          self._time_span) = create_field_heatmap()
         (self._preview_figure, self._preview_source, self._preview_mapper,
-         _) = create_field_heatmap(show_cursor=False, title="signal preview x(s, t)")
+         self._preview_span) = create_field_heatmap(title="signal x(s, t)")
         self._time_figure, self._time_source = create_time_curves_figure()
+        # one single-quantity figure per mode submenu
+        self._mode_views = {}
+        for quantity in ("real", "imag", "phase", "direction"):
+            mode_figure, mode_source = create_mode_component_figure(quantity)
+            style_figure(mode_figure, "modes")
+            self._mode_views[quantity] = (mode_figure, mode_source)
         # color-code the figures by step for visual distinction
         style_figure(self._eigenvalue_figure, "eigenvalues")
         style_figure(self._spectrum_figure, "spectrum")
-        style_figure(self._mode_figure, "modes")
         style_figure(self._heatmap_figure, "reconstruction")
         style_figure(self._time_figure, "reconstruction")
         style_figure(self._preview_figure, "setup")
@@ -170,9 +187,9 @@ class DMDPlayground:
         Arrange the widgets and figures into a tabbed layout with one panel per step.
 
         The tab headers act as a left sidebar with numbered workflow steps; every
-        panel keeps its state while another panel is shown. The Setup panel uses
-        a two-column arrangement (controls beside the signal preview) to keep the
-        panel compact.
+        panel keeps its state while another panel is shown. The Signal panel is
+        the start menu (create the signal, animate it, run the fit); the Mode
+        shapes panel contains nested submenus for the individual mode quantities.
 
         :return: None
         :rtype: None
@@ -188,24 +205,42 @@ class DMDPlayground:
             row(self._dt_spinner, self._dx_spinner, self._n_space_spinner,
                 self._n_time_spinner),
             row(self._offset_spinner, self._noise_toggle, self._noise_spinner),
+            spacing=10,
+        )
+        animation = column(
+            header("Signal animation", "setup"),
+            self._preview_figure,
+            row(self._signal_time_slider, self._signal_play_toggle),
+            hint(_HINT_SIGNAL_ANIMATION, width=500),
+            spacing=8,
+        )
+        signal_panel = column(
+            row(controls, animation, spacing=14),
             header("DMD fit", "setup"),
             row(self._rank_spinner, self._auto_toggle, self._run_button),
             self._status_div,
             spacing=10,
         )
-        preview = column(
-            header("Signal preview", "setup"),
-            self._preview_figure,
-            hint(_HINT_PREVIEW),
-            spacing=8,
-        )
-        setup_panel = row(controls, preview, spacing=14)
         eigen_panel = column(self._eigenvalue_figure, hint(_HINT_EIGENVALUES, width=620),
                              spacing=10)
         spectrum_panel = column(self._spectrum_figure, hint(_HINT_SPECTRUM, width=620),
                                 spacing=10)
-        mode_panel = column(self._mode_slider, self._mode_figure,
-                            hint(_HINT_MODE, width=1000), spacing=10)
+        mode_tabs = Tabs(tabs=[
+            TabPanel(child=column(self._mode_views["real"][0],
+                                  hint(_HINT_REAL, width=1000), spacing=8),
+                     title="Real part"),
+            TabPanel(child=column(self._mode_views["imag"][0],
+                                  hint(_HINT_IMAG, width=1000), spacing=8),
+                     title="Imaginary part"),
+            TabPanel(child=column(self._mode_views["phase"][0],
+                                  hint(_HINT_PHASE, width=1000), spacing=8),
+                     title="Phase"),
+            TabPanel(child=column(self._mode_views["direction"][0], self._direction_div,
+                                  spacing=8),
+                     title="Propagation direction"),
+        ], tabs_location="above",
+            stylesheets=[tab_stylesheet(accent=step_colors("modes")[1], vertical=False)])
+        mode_panel = column(self._mode_slider, mode_tabs, spacing=10)
         time_panel = column(
             header("Time &amp; mode selection", "reconstruction"),
             row(self._time_slider, self._play_toggle),
@@ -215,7 +250,7 @@ class DMDPlayground:
             spacing=10,
         )
         tabs = Tabs(tabs=[
-            TabPanel(child=setup_panel, title="1 · Setup"),
+            TabPanel(child=signal_panel, title="1 · Signal"),
             TabPanel(child=eigen_panel, title="2 · Eigenvalues"),
             TabPanel(child=spectrum_panel, title="3 · Spectrum"),
             TabPanel(child=mode_panel, title="4 · Mode shapes"),
@@ -245,9 +280,11 @@ class DMDPlayground:
         self._auto_toggle.on_change("active", self._on_auto_toggle)
         # view interactions update the curves without a refit
         self._mode_slider.on_change("value", self._on_view_change)
-        self._time_slider.on_change("value", self._on_view_change)
+        self._time_slider.on_change("value", self._on_time_change)
+        self._signal_time_slider.on_change("value", self._on_time_change)
         self._mode_select.on_change("active", self._on_view_change)
-        self._play_toggle.on_change("active", self._on_play_toggle)
+        self._play_toggle.on_change("active", self._on_recon_play)
+        self._signal_play_toggle.on_change("active", self._on_signal_play)
 
     def _build_signal(self) -> ModalSignal:
         """
@@ -382,38 +419,84 @@ class DMDPlayground:
 
     def _update_time_slider(self) -> None:
         """
-        Adjust the time index slider bounds to the current signal length.
+        Adjust the bounds of both synchronized time sliders to the signal length.
 
         :return: None
         :rtype: None
         """
         signal = self._signal
         end = max(signal.n_time - 1, 0) if signal is not None else 0
-        self._time_slider.end = end
-        if self._time_slider.value > end:
-            self._time_slider.value = end
+        for slider in (self._time_slider, self._signal_time_slider):
+            slider.end = end
+            if slider.value > end:
+                slider.value = end
 
     def _update_mode_view(self) -> None:
         """
-        Update the mode shape viewer for the currently selected mode.
+        Update the mode shape sub-views and the propagation direction readout.
 
         :return: None
         :rtype: None
         """
         result = self._result
         if result is None or result.n_modes == 0:
-            self._mode_source.data = dict(s=[], re=[], im=[], abs=[], phase=[])
-            self._mode_figure.title.text = "mode shape"
+            for _, source in self._mode_views.values():
+                source.data = dict(s=[], value=[])
+            self._direction_div.text = "no modes fitted"
             return
         index = min(int(self._mode_slider.value), result.n_modes - 1)
         shape = result.mode(index)
-        self._mode_source.data = dict(s=self._signal.space, re=np.real(shape),
-                                      im=np.imag(shape), abs=np.abs(shape),
-                                      phase=np.angle(shape))
-        self._mode_figure.title.text = (f"mode {index}: f = "
-                                        f"{result.frequencies[index]:.2f} Hz, σ = "
-                                        f"{result.growth_rates[index]:.3f} 1/s, |b| = "
-                                        f"{np.abs(result.amplitudes[index]):.3f}")
+        s = self._signal.space
+        values = {"real": np.real(shape), "imag": np.imag(shape),
+                  "phase": np.angle(shape), "direction": np.angle(shape)}
+        for quantity, (_, source) in self._mode_views.items():
+            source.data = dict(s=s, value=values[quantity])
+        self._update_direction_readout(index, s, values["direction"])
+
+    def _update_direction_readout(self, index: int, s: np.ndarray,
+                                  phase: np.ndarray) -> None:
+        """
+        Compute and display the propagation properties of the selected mode.
+
+        The phase slope :math:`\\kappa` (from an unwrapped linear fit) and the
+        signed frequency give the wavelength and the phase velocity; the sign of
+        the velocity is the propagation direction.
+
+        :param index: mode index
+        :type index: int
+        :param s: spatial grid of the mode shape
+        :type s: np.ndarray
+        :param phase: wrapped phase :math:`\\arg(\\phi)` of the mode shape
+        :type phase: np.ndarray
+        :return: None
+        :rtype: None
+        """
+        result = self._result
+        frequency = float(result.frequencies[index])
+        amplitude = result.amplitudes[index]
+        header = (f"<b>mode {index}</b> · f = {frequency:.3f} Hz · "
+                  f"|b| = {np.abs(amplitude):.3f}<br>")
+        slope = float(np.polyfit(s, np.unwrap(phase), 1)[0])
+        if abs(slope) < 1e-12:
+            self._direction_div.text = (header
+                                        + "spatially constant shape — no propagation "
+                                        "direction (wavenumber κ ≈ 0)")
+            return
+        if abs(frequency) < 1e-12:
+            self._direction_div.text = (header
+                                        + f"κ = {slope:.3f} rad per unit length → "
+                                        f"wavelength λ_w = {2.0 * np.pi / abs(slope):.2f}"
+                                        " — standing pattern (zero frequency)")
+            return
+        velocity = -2.0 * np.pi * frequency / slope
+        direction = "+s" if velocity > 0.0 else "−s"
+        arrow = "→" if velocity > 0.0 else "←"
+        self._direction_div.text = (
+            header
+            + f"κ = {slope:+.3f} rad per unit length → λ_w = "
+            f"{2.0 * np.pi / abs(slope):.2f}<br>"
+            f"phase velocity c = {abs(velocity):.2f} units per second toward "
+            f"{direction} {arrow}")
 
     def _update_mode_select(self) -> None:
         """
@@ -435,7 +518,7 @@ class DMDPlayground:
 
     def _update_time_view(self) -> None:
         """
-        Update the heatmap cursor and the field curves at the current time.
+        Update both time cursors and the field curves at the current time.
 
         :return: None
         :rtype: None
@@ -445,7 +528,9 @@ class DMDPlayground:
         if signal is None:
             return
         t_index = min(int(self._time_slider.value), signal.n_time - 1)
-        self._time_span.location = signal.time[t_index]
+        current_time = signal.time[t_index]
+        self._time_span.location = current_time
+        self._preview_span.location = current_time
         original = signal.samples[:, t_index]
         reconstruction = (self._reconstruction[:, t_index] if self._reconstruction is not None
                           else np.zeros_like(original))
@@ -539,9 +624,9 @@ class DMDPlayground:
         self._update_mode_view()
         self._update_time_view()
 
-    def _on_play_toggle(self, attr: str, old: bool, new: bool) -> None:
+    def _on_recon_play(self, attr: str, old: bool, new: bool) -> None:
         """
-        Start or stop the time animation of the time view.
+        React to the reconstruction play toggle by updating the shared playback.
 
         :param attr: name of the changed widget attribute
         :type attr: str
@@ -552,24 +637,82 @@ class DMDPlayground:
         :return: None
         :rtype: None
         """
-        self._play_toggle.label = "⏸ pause" if new else "▶ play"
-        if new and self._periodic_callback is None:
+        self._set_playback(new, self._play_toggle)
+
+    def _on_signal_play(self, attr: str, old: bool, new: bool) -> None:
+        """
+        React to the signal animation play toggle by updating the shared playback.
+
+        :param attr: name of the changed widget attribute
+        :type attr: str
+        :param old: previous toggle state
+        :type old: bool
+        :param new: new toggle state
+        :type new: bool
+        :return: None
+        :rtype: None
+        """
+        self._set_playback(new, self._signal_play_toggle)
+
+    def _set_playback(self, active: bool, source: Toggle) -> None:
+        """
+        Synchronize both play toggles and start or stop the time animation.
+
+        :param active: whether the animation should run
+        :type active: bool
+        :param source: toggle that triggered the change
+        :type source: Toggle
+        :return: None
+        :rtype: None
+        """
+        if self._syncing_play:
+            return
+        self._syncing_play = True
+        for toggle in (self._play_toggle, self._signal_play_toggle):
+            toggle.label = "⏸ pause" if active else "▶ play"
+            if toggle is not source and toggle.active != active:
+                toggle.active = active
+        self._syncing_play = False
+        if active and self._periodic_callback is None:
             self._periodic_callback = self._doc.add_periodic_callback(
                 self._advance_time, _PLAY_INTERVAL_MS)
-        elif not new and self._periodic_callback is not None:
+        elif not active and self._periodic_callback is not None:
             self._doc.remove_periodic_callback(self._periodic_callback)
             self._periodic_callback = None
 
+    def _on_time_change(self, attr: str, old: object, new: object) -> None:
+        """
+        Synchronize both time sliders and refresh the time-dependent views.
+
+        :param attr: name of the changed widget attribute
+        :type attr: str
+        :param old: previous attribute value
+        :type old: object
+        :param new: new attribute value
+        :type new: object
+        :return: None
+        :rtype: None
+        """
+        if self._syncing_time:
+            return
+        self._syncing_time = True
+        for slider in (self._time_slider, self._signal_time_slider):
+            if slider.value != new:
+                slider.value = new
+        self._syncing_time = False
+        self._update_time_view()
+
     def _advance_time(self) -> None:
         """
-        Advance the time slider by one step for the animation.
+        Advance the synchronized time index by one step for the animation.
 
         :return: None
         :rtype: None
         """
         if self._signal is None:
             return
-        self._time_slider.value = (int(self._time_slider.value) + 1) % self._signal.n_time
+        self._signal_time_slider.value = (int(self._signal_time_slider.value) + 1) \
+            % self._signal.n_time
 
 
 def modify_doc(doc: Document) -> None:

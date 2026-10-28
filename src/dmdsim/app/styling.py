@@ -18,12 +18,13 @@ _GRID = "#dadce0"
 
 _TAB_CSS = """
     :host { background: #ffffff; }
-    .bk-headers { padding: 8px 4px; }
+    .bk-headers { padding: 8px 4px; display: flex; flex-direction: @DIRECTION;
+                  align-items: @ALIGN; }
     .bk-tab { background: #f1f3f4; color: #5f6368; border: none;
               border-radius: 6px; margin: 4px 5px; padding: 9px 16px;
-              font-weight: 500; font-size: 13px; }
+              font-weight: 500; font-size: 13px; text-align: left; }
     .bk-tab:hover { background: #e8eaed; color: #202124; }
-    .bk-active { background: #1a73e8; color: #ffffff; }
+    .bk-active { background: @ACCENT; color: #ffffff; }
 """
 
 
@@ -138,17 +139,32 @@ def info_box(text: str = "") -> Div:
     })
 
 
-def tab_stylesheet() -> InlineStyleSheet:
+def tab_stylesheet(accent: str = "#1a73e8", vertical: bool = True) -> InlineStyleSheet:
     """
-    Create the stylesheet for the modern tab strip styling.
+    Create the stylesheet for a tab strip styling.
 
-    The tab headers become rounded buttons with a muted default state, a subtle
-    hover state, and the setup accent color for the active tab.
+    Vertical strips (the main sidebar) get uniformly wide, left-aligned buttons
+    stacked from the top; horizontal strips (nested submenus) keep compact
+    buttons. The active tab carries the given accent color.
 
-    :return: inline stylesheet for the ``Tabs`` widget
+    :param accent: background color of the active tab, defaults to the setup blue
+    :type accent: str
+    :param vertical: style a vertical (left location) tab strip instead of a
+        horizontal one, defaults to True
+    :type vertical: bool, optional
+    :return: inline stylesheet for a ``Tabs`` widget
     :rtype: InlineStyleSheet
     """
-    return InlineStyleSheet(css=_TAB_CSS)
+    # placeholders instead of format() because the CSS is full of literal braces
+    replacements = {
+        "@DIRECTION": "column" if vertical else "row",
+        "@ALIGN": "stretch" if vertical else "flex-start",
+        "@ACCENT": accent,
+    }
+    css = _TAB_CSS
+    for key, value in replacements.items():
+        css = css.replace(key, value)
+    return InlineStyleSheet(css=css)
 
 
 if __name__ == "__main__":

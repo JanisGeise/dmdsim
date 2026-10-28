@@ -49,10 +49,13 @@ Nothing in the core knows about Bokeh; nothing in `app` implements math.
    only — **no refit**. The reconstruction is sliced from the cached field.
 
 The layout is a `Tabs` widget with `tabs_location="left"`; each step
-(Setup, Eigenvalues, Spectrum, Mode shapes, Reconstruction) is one `TabPanel`. All
-panels stay alive while hidden, so widget state survives tab switching. The Setup
-panel ends with a live signal preview (same heatmap data as the time view, but
-without the time cursor).
+(1 · Signal, 2 · Eigenvalues, 3 · Spectrum, 4 · Mode shapes, 5 · Reconstruction)
+is one `TabPanel`. All panels stay alive while hidden, so widget state survives
+tab switching. The Signal panel is the start menu (create the signal, animate it,
+run the fit) and ends with a live signal animation; the Mode shapes panel nests
+horizontal sub-tabs (Real part / Imaginary part / Phase / Propagation direction)
+that share one mode slider. The Signal and Reconstruction views use two
+synchronized time sliders/play toggles driving one shared time cursor.
 
 ## The playground math
 

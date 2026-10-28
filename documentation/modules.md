@@ -65,8 +65,10 @@ the figure plus the data source (and extras where needed):
   index/λ/f/σ; 620×560.
 - `create_spectrum_figure()` — stem-style |b| over frequency with hover; the x
   range is set to ±Nyquist by the app; 620×560.
-- `create_mode_figure()` — Re(φ), Im(φ), |φ| on the left axis and arg(φ) on a
-  second right axis (`extra_y_ranges`); 1000×280.
+- `create_mode_component_figure(quantity)` — single-quantity mode shape figure;
+  ``quantity`` is one of ``real``, ``imag``, ``phase`` (plain views) or
+  ``direction`` (phase view titled for the propagation analysis); phase-like
+  views have a fixed ±π y-range; source columns ``s`` and ``value``; 1000×420.
 - `create_field_heatmap(show_cursor=True, title="field x(s, t)")` — `image` glyph of
   `x(s, t)` with shared `LinearColorMapper` (RdBu, symmetric limits) and an
   optional `Span` as time cursor (`show_cursor=False` for the static signal
@@ -91,8 +93,11 @@ per step for visual distinction):
 - `header(text, step)` — colored section header element for panels.
 - `hint(text, width=None)` — muted inline explanation block.
 - `info_box(text="")` — neutral box for dynamic status/readout text.
-- `tab_stylesheet()` — `InlineStyleSheet` for the tab strip (rounded buttons,
-  hover state, setup-blue active tab; uses the `.bk-tab`/`.bk-active` classes).
+- `tab_stylesheet(accent="#1a73e8", vertical=True)` — `InlineStyleSheet` for a tab
+  strip (rounded buttons, hover state, accent-colored active tab); vertical
+  strips get uniformly wide, left-aligned buttons (main sidebar), horizontal
+  strips compact buttons (nested submenus); uses the `.bk-tab`/`.bk-active`
+  classes.
 
 ## `src/dmdsim/app/main.py`
 
@@ -101,36 +106,44 @@ silences flowTorch's INFO logging at import time.
 
 - Constants: `_MAX_MODE_EDITORS = 3`, `_NOISE_SEED = 42`, `_PLAY_INTERVAL_MS = 60`,
   `_WATCHDOG_INTERVAL_MS = 500`, `_SHUTDOWN_GRACE_MS = 2000`, `_MODE_DEFAULTS`
-  (wavenumber, frequency, amplitude, growth, active per editor slot), and the four
-  `_HINT_*` inline explanations.
+  (wavenumber, frequency, amplitude, growth, active per editor slot), and the
+  `_HINT_*` inline explanations (per panel and per mode quantity).
 - `DMDPlayground(doc)` — builds widgets, figures, layout, callbacks and runs the
   initial fit:
   - `_build_widgets`: per-mode editors (toggle + κ/f/A/σ spinners), grid/offset/
     noise widgets, rank (0 = automatic), auto-rerun toggle, styled Run button,
-    status info box, mode/time sliders, play toggle, mode checkbox group, readout
-    info box.
+    status info box, shared mode slider, TWO synchronized time sliders and play
+    toggles (signal animation in the start menu, reconstruction view), mode
+    checkbox group, readout and propagation-direction info boxes.
   - `_build_layout`: `Tabs(tabs_location="left")` with one `TabPanel` per step —
-    "1 · Setup" (two-column: modal components, grid & noise, DMD fit, status on
-    the left; live signal preview on the right), "2 · Eigenvalues", "3 ·
-    Spectrum", "4 · Mode shapes", "5 · Reconstruction" (with a selection header).
-    All panels stay alive while hidden. Figures are color-coded per step and
-    section headers/hints/info boxes come from `styling.py`; the tab strip
-    carries a custom stylesheet.
+    "1 · Signal" (start menu: modal components + grid & noise on the left,
+    signal animation with cursor/slider/play on the right, DMD fit + status
+    below), "2 · Eigenvalues", "3 · Spectrum", "4 · Mode shapes" (nested
+    horizontal sub-tabs: Real part / Imaginary part / Phase / Propagation
+    direction, sharing the mode slider), "5 · Reconstruction". All panels stay
+    alive while hidden. Figures are color-coded per step; the main sidebar and
+    the nested strip carry separate tab stylesheets (vertical/horizontal).
   - `_attach_callbacks`: parameter widgets → `_on_parameter_change` (refit on
-    auto-rerun, otherwise mark stale); Run button → `_run_dmd`; sliders/checkbox →
-    `_on_view_change` (view refresh without refit); play toggle → periodic
-    callback that advances the time slider.
+    auto-rerun, otherwise mark stale); Run button → `_run_dmd`; mode slider and
+    checkbox → `_on_view_change` (view refresh without refit); both time sliders
+    → `_on_time_change` (two-way sync + time view refresh); both play toggles →
+    `_on_recon_play`/`_on_signal_play` → `_set_playback` (synced labels/states,
+    one shared periodic callback advancing the time).
   - `_run_dmd`: `_build_signal` → `fit_dmd` → cache reconstruction → update all
     views, slider/checkbox bounds, and the status line (mode count + round-trip
     error).
   - `_mode_field(index, t_index)`: real contribution of one mode at one time level
     (`Re{φᵢ·bᵢ·λᵢᵗ}`) used by the time view.
-  - `_update_*` methods: `_update_field_view` (signal preview + heatmap, color
-    limits, slider bounds), `_update_quantities` (eigenvalues, spectrum, axis
-    ranges), `_update_mode_slider`/`_update_time_slider` (bounds + clamping),
-    `_update_mode_view`, `_update_mode_select` (resets selection before
-    relabeling to avoid stale indices), `_update_time_view`, `_update_readout`.
-  - `_on_play_toggle` / `_advance_time`: animation via
+  - `_update_*` methods: `_update_field_view` (signal animation heatmap + time
+    view heatmap, color limits, slider bounds), `_update_quantities` (eigenvalues,
+    spectrum, axis ranges), `_update_mode_slider`/`_update_time_slider` (bounds +
+    clamping of both sliders), `_update_mode_view` (fills the four single-quantity
+    mode sources), `_update_direction_readout` (phase slope κ → wavelength, phase
+    velocity, travel direction with arrow), `_update_mode_select` (resets
+    selection before relabeling to avoid stale indices), `_update_time_view`
+    (both time cursors + curves), `_update_readout`.
+  - `_on_time_change` / `_set_playback` / `_advance_time`: two-way slider sync
+    with a re-entrancy guard and one shared animation via
     `Document.add_periodic_callback` (the returned token is kept for removal).
 - `modify_doc(doc)` — entry point for `bokeh serve` (script or directory app).
 - `main()` — entry point for the `dmdsim-app` console script: starts the server on
