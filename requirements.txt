@@ -1,5 +1,6 @@
 # runtime dependencies of dmdsim and the local flowTorch installation
 numpy==2.5.4
+bokeh==3.10.1
 scipy==1.18.1
 plotly==7.1.0
 pandas==3.1.0

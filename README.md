@@ -31,6 +31,23 @@ python3 -m venv .venv
 .venv/bin/pytest --cov=dmdsim
 ```
 
+## Run the GUI
+
+```bash
+# starts a local Bokeh server and opens the app in the browser
+.venv/bin/dmdsim-app
+# equivalent manual start
+.venv/bin/bokeh serve src/dmdsim/app
+```
+
+The left panel configures the synthetic signal (up to three modes with wavenumber κ,
+frequency f, amplitude A, and growth rate σ; grid; offset; optional seeded noise) and
+the DMD rank. With *auto-rerun* active, every change refits and updates all views:
+eigenvalue plane, DMD spectrum, mode shape viewer (Re/Im/|φ|/arg φ), and the time view
+(space-time heatmap with time cursor plus field curves and play animation). Inline
+hints under the plots explain each quantity. Deselect modes in the checkbox row to
+study their individual contribution to the reconstruction.
+
 ## Usage
 
 The core is GUI-independent and can be used from scripts and notebooks.
