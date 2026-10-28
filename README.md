@@ -90,3 +90,11 @@ pushed to any remote.
 See `PLAN.md` for the full roadmap and status. Currently implemented: core
 library (M1). Next: Bokeh GUI v1 (M2), interactive eigenvalue dragging (M3),
 2D OpenFOAM support via flowTorch (M5, deferred).
+
+A hands-on demo of the core workflow lives in `examples/demo_core.py`:
+
+```bash
+.venv/bin/python examples/demo_core.py
+# then open the generated interactive plot
+xdg-open run/demo/dmd_playground_demo.html
+```
