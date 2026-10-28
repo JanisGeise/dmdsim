@@ -4,40 +4,86 @@
 import numpy as np
 
 from bokeh.plotting import figure
-from bokeh.models import (Span, Arrow, Range1d, HoverTool, NormalHead, GlyphRenderer,
-                          PointDrawTool, ColumnDataSource)
+from bokeh.models import (Span, Arrow, Label, Range1d, HoverTool, NormalHead,
+                          GlyphRenderer, PointDrawTool, ColumnDataSource)
+
+from dmdsim.app.styling import halfplane_colors
 
 
-def create_eigenvalue_figure() -> tuple[figure, ColumnDataSource]:
+def create_eigenvalue_figure() -> tuple[figure, ColumnDataSource, GlyphRenderer,
+                                        GlyphRenderer, Label, Label]:
     """
     Create the eigenvalue plane with the unit circle and an empty mode scatter.
 
-    :return: figure and the data source for the eigenvalue scatter; the source
-        expects the columns ``re``, ``im``, ``index``, ``frequency``, and ``growth``
-    :rtype: tuple[figure, ColumnDataSource]
+    The upper and lower half planes are shaded to emphasize the sign of
+    ``Im λ`` (equivalently the sign of the frequency); the shading colors
+    follow the theme and are updated by the application on theme switches.
+    A small triangle above each eigenvalue marker points in the travel
+    direction of the mode's wave (the application fills the ``dir_*`` columns
+    from the signed phase velocity; NaN coordinates hide the triangle for
+    non-propagating modes).
+
+    :return: figure, the data source for the eigenvalue scatter; the source
+        expects the columns ``re``, ``im``, ``index``, ``frequency``,
+        ``growth``, ``color``, ``size``, and the direction-marker columns
+        ``dir_x``, ``dir_y``, ``dir_angle``, ``dir_color``, and ``dir_size``;
+        the two half-plane shading renderers (upper first, lower second; the
+        application updates their glyph fill color on theme switches), and the
+        two half-plane labels (upper first, lower second; the application
+        updates their text color on theme switches)
+    :rtype: tuple[figure, ColumnDataSource, GlyphRenderer, GlyphRenderer, Label,
+        Label]
     """
     fig = figure(width=620, height=560, title="eigenvalue plane", match_aspect=True,
                  x_range=(-1.6, 1.6), y_range=(-1.6, 1.6))
+    # shaded half planes below all other glyphs mark the frequency sign; the
+    # rectangles extend far beyond the axis ranges so any zoom level is covered
+    upper_color, lower_color = halfplane_colors()
+    upper_renderer = fig.patch(x=[-100.0, 100.0, 100.0, -100.0],
+                               y=[0.0, 0.0, 100.0, 100.0],
+                               fill_color=upper_color, fill_alpha=0.08,
+                               line_alpha=0.0)
+    lower_renderer = fig.patch(x=[-100.0, 100.0, 100.0, -100.0],
+                               y=[0.0, 0.0, -100.0, -100.0],
+                               fill_color=lower_color, fill_alpha=0.08,
+                               line_alpha=0.0)
     angles = np.linspace(0.0, 2.0 * np.pi, 200)
     fig.line(np.cos(angles), np.sin(angles), line_color="gray", line_dash="dashed",
              line_width=1)
     source = ColumnDataSource(dict(re=[], im=[], index=[], frequency=[], growth=[],
-                                   color=[], size=[]))
+                                   color=[], size=[], dir_x=[], dir_y=[],
+                                   dir_angle=[], dir_color=[], dir_size=[]))
     eigen_renderer = fig.scatter(x="re", y="im", source=source, size="size",
                                  color="color", line_color="white")
+    # small travel-direction triangles above the eigenvalue markers; the
+    # application sets the angle (right = +x, left = -x) and hides
+    # non-propagating modes via NaN coordinates
+    fig.scatter(x="dir_x", y="dir_y", source=source, marker="triangle",
+                angle="dir_angle", size="dir_size", color="dir_color",
+                line_color="white")
     # eigenvalues are edited by dragging only: adding points is disabled, and the
     # application restores the source if a point is deleted via backspace
     fig.add_tools(PointDrawTool(renderers=[eigen_renderer], add=False, drag=True,
                                 empty_value=0.0))
-    fig.add_tools(HoverTool(tooltips=[
+    # the hover is scoped to the scatter: the half-plane patches would otherwise
+    # capture the hover everywhere with empty tooltip fields
+    fig.add_tools(HoverTool(renderers=[eigen_renderer], tooltips=[
         ("mode", "@index"),
         ("lambda", "(@re{0.000}, @im{0.000})"),
         ("f", "@frequency{0.000} Hz"),
         ("growth rate σ", "@growth{0.000} 1/s"),
     ]))
+    upper_label = Label(x=0.0, y=1.13, text="Im λ > 0", text_align="center",
+                        text_font_size="11px", text_font_style="bold",
+                        text_color=upper_color)
+    lower_label = Label(x=0.0, y=-1.13, text="Im λ < 0", text_align="center",
+                        text_font_size="11px", text_font_style="bold",
+                        text_color=lower_color)
+    fig.add_layout(upper_label)
+    fig.add_layout(lower_label)
     fig.xaxis.axis_label = "Re(λ)"
     fig.yaxis.axis_label = "Im(λ)"
-    return fig, source
+    return fig, source, upper_renderer, lower_renderer, upper_label, lower_label
 
 
 def create_mode_dynamics_figure() -> tuple[figure, ColumnDataSource, ColumnDataSource,
@@ -116,6 +162,48 @@ def create_spectrum_figure() -> tuple[figure, ColumnDataSource, list[Span]]:
     fig.xaxis.axis_label = "f [Hz]"
     fig.yaxis.axis_label = "amplitude |b|"
     return fig, source, spans
+
+
+def create_growth_direction_figure() -> tuple[figure, ColumnDataSource]:
+    """
+    Create the growth-direction plane of the fitted modes.
+
+    Shows each mode as a marker over its growth rate
+    :math:`\\sigma = \\Re(\\mu)` with
+    :math:`\\mu = \\ln(\\lambda)/\\Delta t` (horizontal) and its phase velocity
+    :math:`c = -2\\pi f / \\kappa` (vertical, :math:`\\kappa` = phase slope of
+    the mode shape): the sign of ``c`` is the propagation direction, so modes
+    above the zero line travel toward :math:`+x` and below toward :math:`-x`;
+    conjugate partners form one physical wave and coincide. Markers carry
+    per-point pair colors and the selection emphasis; dashed spans mark zero
+    growth and zero propagation. The axis ranges are set by the application.
+
+    :return: figure and the data source; the source expects the columns
+        ``sigma``, ``velocity``, ``index``, ``color``, ``size``, ``frequency``,
+        and ``direction``
+    :rtype: tuple[figure, ColumnDataSource]
+    """
+    fig = figure(width=620, height=560,
+                 title="growth rate σ over phase velocity c")
+    source = ColumnDataSource(dict(sigma=[], velocity=[], index=[], color=[], size=[],
+                                   frequency=[], direction=[]))
+    scatter_renderer = fig.scatter(x="sigma", y="velocity", source=source,
+                                   size="size", color="color", line_color="white")
+    fig.add_tools(HoverTool(renderers=[scatter_renderer], tooltips=[
+        ("mode", "@index"),
+        ("σ", "@sigma{0.000} 1/s"),
+        ("f", "@frequency{0.000} Hz"),
+        ("c", "@velocity{0.000} units/s"),
+        ("travels", "@direction"),
+    ]))
+    # dashed zero lines: vertical = neutral growth (σ = 0), horizontal = no
+    # propagation (c = 0: standing wave or spatially constant shape)
+    for dimension in ("height", "width"):
+        fig.add_layout(Span(dimension=dimension, location=0.0, line_color="gray",
+                            line_dash="dashed", line_width=1))
+    fig.xaxis.axis_label = "σ [1/s]"
+    fig.yaxis.axis_label = "c = −2πf/κ [units/s]"
+    return fig, source
 
 
 _MODE_FIGURE_SPECS = {

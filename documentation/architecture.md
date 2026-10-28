@@ -41,9 +41,10 @@ Nothing in the core knows about Bokeh; nothing in `app` implements math.
    `_build_signal()` reads the widgets and creates a `ModalSignal`
    → `fit_dmd(signal.samples, dt, rank)` (numpy → torch float64 → flowTorch DMD →
    numpy quantities) → `synthesize(...)` caches the full reconstruction.
-3. **View updates** (`_update_*` methods): eigenvalue plane, spectrum, mode viewer,
-   heatmap, sliders/checkbox bounds, status line, and readout are refilled from the
-   new `DMDResult`; Bokeh pushes the patches to the browser.
+3. **View updates** (`_update_*` methods): eigenvalue plane, spectrum,
+   continuous-time eigenvalue plane, mode viewer, sliders/checkbox bounds,
+   status line, and readout are refilled from the new `DMDResult`; Bokeh pushes
+   the patches to the browser.
 4. **View-only interactions** (time slider, play animation, mode selection
    checkboxes, mode index slider) call `_update_mode_view` / `_update_time_view`
    only — **no refit**. The reconstruction is sliced from the cached field.
@@ -51,20 +52,38 @@ Nothing in the core knows about Bokeh; nothing in `app` implements math.
 The layout is a `Tabs` widget with `tabs_location="left"` inside an application
 bar (title + light/dark theme `Switch`); the tabs are ordered **Start** (default
 landing tab: DMD in a nutshell, workflow navigation with Open buttons, tips),
-**1 · Signal**, **2 · Eigenvalues**, **3 · Spectrum**, **4 · Mode shapes**
+**1 · Signal**, **2 · Eigenvalues**, **3 · Spectrum** (amplitude spectrum and
+growth-direction plane — growth rate σ over phase velocity c = −2πf/κ — side
+by side), **4 · Mode shapes**
 (nested sub-tabs: Real part / Imaginary part / Phase / Propagation direction),
 and **5 · Reconstruction**. All panels stay alive while hidden, so widget state
 survives tab switching. Four time sliders and play toggles (panels 1, 2, 4, 5)
-are two-way synchronized and drive one shared time cursor.
+are two-way synchronized and drive one shared time cursor. Every panel carries
+a reset button: panel 1 restores the default signal parameters (and refits),
+panels 2–5 restore the fitted DMD values (panel 5 additionally re-selects all
+modes).
 
 **Editing loop (M3):** dragging an eigenvalue in the plane (PointDrawTool)
 commits once per gesture; `_on_eigenvalue_drag` writes the new eigenvalues into
 the result with conjugate mirroring (cached pair structure), recomputes the
 reconstruction via `synthesize`, and refreshes spectrum, λᵗ spiral, direction
 view, and readout — the same feedback path is used by the |b| scale spinner.
-Edits apply to the current fit; a refit restores the fitted values. Locked
+Edits apply to the current fit; a refit restores the fitted values, and the
+per-panel reset buttons (`_reset_to_fit`) restore them on demand. Locked
 drags (unit-circle lock) are temporary experiments and reset when another
-eigenvalue is selected.
+eigenvalue is selected. The eigenvalue plane shades the two half planes to
+mark the sign of Im λ (equivalently the frequency sign), and a small triangle
+above each eigenvalue points in that wave's travel direction — computed from
+the signed phase velocity c = −2πf/κ, so it flips live when the eigenvalue is
+dragged across the real axis (a static half-plane direction label would be
+wrong: both members of a conjugate pair travel the same way). The
+propagation-direction readout states the link explicitly
+(`Im λ` sign → side → travel direction via `c = −2πf/κ`), so dragging across
+the real axis visibly flips the direction. The spectrum panel reinforces the
+same link: its growth-direction plane plots each mode's growth rate σ over
+the signed phase velocity c = −2πf/κ (above the zero line toward +x, below
+toward −x), so a real-axis drag moves the mode's point across the zero line;
+conjugate partners coincide there (one physical wave).
 
 ## The playground math
 

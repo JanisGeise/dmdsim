@@ -76,8 +76,17 @@ the figure plus the data source (and extras where needed):
 - `create_eigenvalue_figure()` — eigenvalue scatter, unit circle, hover with mode
   index/λ/f/σ; markers carry per-point pair colors and selection emphasis via the
   ``color``/``size`` columns; a `PointDrawTool` (``add=False`` — drag-only)
-  makes the eigenvalues draggable; source columns ``re``, ``im``, ``index``,
-  ``frequency``, ``growth``, ``color``, and ``size``; 620×560.
+  makes the eigenvalues draggable; the upper/lower half planes are shaded
+  (`HALF_PLANE_COLORS` via `halfplane_colors`, labels "Im λ > 0"/"Im λ < 0")
+  to mark the frequency sign; a small travel-direction triangle above each
+  marker (same source, columns ``dir_x``/``dir_y``/``dir_angle``/
+  ``dir_color``/``dir_size``: rotated toward +x/−x, NaN coordinates hide
+  non-propagating modes) is filled by the app from the signed phase velocity
+  and follows the drags; the hover is scoped to the scatter so the patches do
+  not capture it; source columns ``re``, ``im``, ``index``, ``frequency``,
+  ``growth``, ``color``, ``size``, and the ``dir_*`` columns; returns
+  `(figure, source, upper_renderer, lower_renderer, upper_label, lower_label)`
+  (the renderers/labels are re-colored by the app on theme switches); 620×560.
 - `create_spectrum_figure()` — stem-style DMD spectrum of the mode amplitudes
   over frequency; stems and markers carry per-point stability colors (red
   growing, blue decaying, gray neutral) and selection emphasis via the
@@ -85,6 +94,18 @@ the figure plus the data source (and extras where needed):
   the app to place; source columns ``frequency``, ``amplitude``, ``index``,
   ``growth``, ``color``, ``width``, ``size``; returns
   `(figure, source, nyquist_spans)`; 620×560.
+- `create_growth_direction_figure()` — growth-direction plane of the fitted
+  modes: one marker per mode over growth rate ``σ = Re(ln λ)/dt`` (x) and
+  phase velocity ``c = −2πf/κ`` (y, κ = unwrapped phase slope of the mode
+  shape); the sign of ``c`` is the propagation direction (above the zero line
+  toward +x, below toward −x), so conjugate partners — one physical wave —
+  coincide; dashed zero lines (σ = 0, c = 0), pair colors and selection
+  emphasis via the ``color``/``size`` columns, hover with mode/σ/f/c/direction;
+  the app sets both axis ranges from the fitted data (velocity via
+  `_update_spectrum`, which derives ``c`` with the `_phase_slopes` helper and
+  zeroes it for shapes without phase slope); source columns ``sigma``,
+  ``velocity``, ``index``, ``color``, ``size``, ``frequency``, and
+  ``direction``; 620×560 (placed beside the amplitude spectrum in panel 3).
 - `create_mode_component_figure(quantity)` — single-quantity mode shape figure;
   ``quantity`` is one of ``real``, ``imag``, or ``phase``; the phase view renders
   the unwrapped phase as a line plus the wrapped ±π values as faded points;
@@ -125,6 +146,9 @@ background #131313):
   colors plus per-step panel tints and accents).
 - `PAIR_PALETTE` / `PAIR_PALETTE_DARK` — categorical colors for conjugate
   eigenvalue pairs (one color per physical mode); the dark cycle is brighter.
+- `HALF_PLANE_COLORS` / `halfplane_colors(mode)` — upper/lower half-plane
+  shading colors of the eigenvalue plane (frequency sign; the labels carry the
+  same colors).
 - `theme_colors(mode)`, `step_colors(step, mode)` — accessors.
 - `style_figure(fig, step, mode)` — theme plot background on the tinted panel
   border, accent-colored bold title, theme axes/grid/legend (legend styling
@@ -169,33 +193,44 @@ silences flowTorch's INFO logging at import time.
   `_fit_eigvals` (editing baselines cached per fit and on re-sort),
   `_locked_edit_indices` (unit-circle-locked drags are temporary and reset when
   another eigenvalue is selected), `_drag_cache` (marker positions for drag
-  detection), `_themed_divs` (registered theme-dependent elements), and the
-  stored stylesheets `_page_sheet`/`_tab_sheet`/`_mode_tab_sheet` (created once;
-  a theme switch regenerates their `css`).
+  detection), `_syncing_params` (guards the programmatic restore in
+  `_reset_signal_parameters` against refit storms), `_themed_divs` (registered
+  theme-dependent elements), and the stored stylesheets
+  `_page_sheet`/`_tab_sheet`/`_mode_tab_sheet` (created once; a theme switch
+  regenerates their `css`).
 - `_build_widgets`: automatic-composition spinners (Nₘ, f_min, f_max, offset),
   time/noise widgets, rank (0 = automatic), auto-rerun select, styled Run
-  button, status info box, shared mode sliders, FOUR synchronized time sliders
-  in **seconds** ("t [s]", range [0, (n_time − 1)·dt], step = Δt) and play
-  toggles (panels 1, 2, 4, 5), mode checkbox group, readout and
-  propagation-direction info boxes, |b| scale spinner, unit-circle lock toggle.
+  button + "↺ reset parameters" button, status info box, shared mode sliders,
+  FOUR synchronized time sliders in **seconds** ("t [s]", range
+  [0, (n_time − 1)·dt], step = Δt) and play toggles (panels 1, 2, 4, 5), mode
+  checkbox group, readout and propagation-direction info boxes, |b| scale
+  spinner, unit-circle lock toggle, and four "↺ reset to DMD fit" buttons
+  (one per panel 2–5, `self._reset_fit_buttons` keyed by panel).
   Persistent info boxes are registered for theming; the theme stylesheets are
   created here.
-- `_build_layout`: application bar (title + dark-mode `Switch`) above
-  `Tabs(tabs_location="left")`: "Start" (default landing tab: DMD in a nutshell,
-  workflow rows with per-step-accent Open buttons navigating via `_make_goto`,
-  tips), "1 · Signal" (composition + grid/noise + DMD fit on the left, signal
-  animation on the right), "2 · Eigenvalues" (one control row: eigenvalue
-  number, sort, |b| scale, unit-circle lock; eigenvalue plane + λᵗ dynamics),
-  "3 · Spectrum", "4 · Mode shapes" (nested sub-tabs: Real part / Imaginary
-  part / Phase / Propagation direction with its own time slider + play), 
-  "5 · Reconstruction". All panels stay alive while hidden; the layout root,
-  main tabs, and nested tabs are stored for in-place theming.
+- `_build_layout`: application bar (title "DMD Playground" + dark-mode
+  `Switch`) above `Tabs(tabs_location="left")`: "Start" (default landing tab:
+  DMD in a nutshell, workflow rows with per-step-accent Open buttons navigating
+  via `_make_goto`, tips), "1 · Signal" (composition + grid/noise + DMD fit
+  with Run/reset on the left, signal animation on the right), "2 · Eigenvalues"
+  (one control row: eigenvalue number, sort, |b| scale, unit-circle lock,
+  reset; eigenvalue plane + λᵗ dynamics), "3 · Spectrum" (reset button,
+  amplitude spectrum + growth-direction plane σ over c side by side), "4 ·
+  Mode shapes" (reset beside the eigenvalue number slider; nested sub-tabs:
+  Real part / Imaginary part / Phase / Propagation direction with its own time
+  slider + play), "5 · Reconstruction" (reset in the time-slider row). All
+  panels stay alive while hidden; the layout root, main tabs, and nested tabs
+  are stored for in-place theming. The root is NOT added here — `__init__`
+  adds it after `_attach_callbacks` (bokeh resolves incoming events via the
+  models subscribed at attach time; `on_click` after `add_root` never fires).
 - `_attach_callbacks`: parameter widgets → `_on_parameter_change` (refit on
-  auto-rerun, otherwise mark stale); Run button → `_run_dmd`; eigenvalue-number
-  sliders → `_on_mode_slider_change` (two-way sync); checkbox →
-  `_on_view_change`; time sliders (four) → `_on_time_change` (two-way sync);
-  play toggles → `_set_playback` (synced labels/states, one shared periodic
-  callback); eigenvalue source data → `_on_eigenvalue_drag`; |b| scale →
+  auto-rerun, otherwise mark stale); Run button → `_run_dmd`; reset buttons →
+  `_reset_signal_parameters` (panel 1) and `_reset_to_fit` (panels 2–5, panel
+  5 with ``reselect=True``); eigenvalue-number sliders →
+  `_on_mode_slider_change` (two-way sync); checkbox → `_on_view_change`; time
+  sliders (four) → `_on_time_change` (two-way sync); play toggles →
+  `_set_playback` (synced labels/states, one shared periodic callback);
+  eigenvalue source data → `_on_eigenvalue_drag`; |b| scale →
   `_on_amplitude_change`; sort select → `_on_sort_change`.
   - `_run_dmd`: `_build_signal` (uses `generate_modes`) → constant-signal guard
     (friendly message) → rank resolution (0 = automatic: exact rank 2·n_modes
@@ -208,6 +243,17 @@ silences flowTorch's INFO logging at import time.
     automatic + round-trip error when automatic, otherwise only the error).
   - `_mode_field(index, t_index)`: real contribution of one mode at one time level
     (`Re{φᵢ·bᵢ·λᵢᵗ}`) used by the time view.
+  - `_phase_slopes()`: unwrapped phase slope κ (wavenumber) of every mode
+    shape; used by the propagation-direction readout.
+  - `_phase_velocities()`: signed phase velocity c = −2πf/κ per mode (zero for
+    shapes without phase slope); used by the growth-direction plane and the
+    direction triangles.
+  - `_direction_marker_columns()`: travel-direction triangle columns
+    (``dir_*``) of the eigenvalue plane — position above the marker, rotation
+    toward +x/−x, pair color, selection emphasis, NaN-hidden for
+    non-propagating modes; refilled on fit/sort/select and inside the drag
+    handler so the triangles follow a dragged eigenvalue and flip when it
+    crosses the real axis.
   - `_pair_colors()`: one color per conjugate pair (theme-dependent palette;
     unpaired modes gray) shared by eigenvalue plane, dynamics markers,
     spectrum, and reconstruction.
@@ -216,13 +262,25 @@ silences flowTorch's INFO logging at import time.
     refresh), `_update_eigenvalue_markers` (stability pair colors + selection
     emphasis in both complex-plane plots; guarded against the drag callback),
     `_update_spectrum` (pair colors, selection emphasis, Nyquist spans and
-    axis), `_update_mode_slider`/`_update_time_slider` (bounds + clamping of
+    axis, growth-direction plane σ over phase velocity c = −2πf/κ with
+    data-driven axis ranges),
+    `_update_mode_slider`/`_update_time_slider` (bounds + clamping of
     the synced sliders), `_update_mode_view` (fills the three single-quantity
     mode sources incl. unwrapped phase), `_update_direction_view` (traveling
     wave at the current time, fixed envelope y-range, direction arrow, and the
-    κ/λ_w/c readout), `_update_mode_select` (resets selection before
+    κ/λ_w/c readout incl. the eigenvalue-side line
+    "Im λ = … → eigenvalue above/below the real axis (f ≷ 0)"),
+    `_update_mode_select` (resets selection before
     relabeling to avoid stale indices), `_update_time_view` (curves + per-
     eigenvalue pair lines + selected-line color + λᵗ trail), `_update_readout`.
+  - `_reset_signal_parameters`: restores `_DEFAULT_SIGNAL_PARAMS` under the
+    `_syncing_params` guard (change callbacks idle, mutual frequency bounds
+    set explicitly), then one refit.
+  - `_reset_to_fit(reselect=False)`: writes the cached fit baselines
+    (`_fit_eigvals`/`_fit_amplitudes`) back into the result, clears locked
+    edits and the drag cache, resets the |b| scale to 1, recomputes the
+    reconstruction, and refreshes the quantity and time views; panel 5
+    additionally re-selects all modes via `_update_mode_select`.
   - `_on_eigenvalue_drag`: applies dragged eigenvalues with conjugate
     mirroring (cached pairs), restores the source after backspace deletions,
     recomputes the reconstruction, and refreshes spectrum + time views; the

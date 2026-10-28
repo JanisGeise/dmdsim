@@ -45,6 +45,12 @@ THEMES = {"light": _LIGHT, "dark": _DARK}
 PAIR_PALETTE = _LIGHT["pair_palette"]
 PAIR_PALETTE_DARK = _DARK["pair_palette"]
 
+# half-plane shading of the eigenvalue plane: an eigenvalue above the real axis
+# (Im(λ) > 0) has a positive frequency, below it a negative one; the labels
+# "f > 0" / "f < 0" carry the same colors (subtle fills in both themes)
+HALF_PLANE_COLORS = {"light": ("#f9ab00", "#1a73e8"),
+                     "dark": ("#fdd663", "#8ab4f8")}
+
 _TAB_CSS = """
     :host { background: @PAGE; }
     .bk-headers { padding: 8px 4px; display: flex; flex-direction: @DIRECTION;
@@ -110,6 +116,24 @@ def step_colors(step: str, mode: str = "light") -> tuple[str, str]:
     """
     theme = THEMES[mode]
     return theme["tints"][step], theme["accents"][step]
+
+
+def halfplane_colors(mode: str = "light") -> tuple[str, str]:
+    """
+    Return the half-plane shading colors of the eigenvalue plane.
+
+    The shading emphasizes the sign of the frequency: the upper half plane
+    (``Im(λ) > 0``) belongs to positive frequencies and the lower half plane to
+    negative ones.
+
+    :param mode: theme mode, defaults to ``"light"``
+    :type mode: str, optional
+    :return: upper and lower half-plane colors as ``(upper, lower)``
+    :rtype: tuple[str, str]
+    """
+    assert mode in HALF_PLANE_COLORS, (f"Unknown theme {mode!r}, must be one of: "
+                                       f"{sorted(HALF_PLANE_COLORS)}")
+    return HALF_PLANE_COLORS[mode]
 
 
 def style_figure(fig, step: str, mode: str = "light") -> None:

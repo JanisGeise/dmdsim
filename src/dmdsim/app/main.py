@@ -23,13 +23,15 @@ from dmdsim.core.synth import mirror_conjugates, synthesize
 from dmdsim.signals.generator import ModalSignal, generate_modes
 
 from dmdsim.app.figures import (create_direction_figure, create_eigenvalue_figure,
-                                create_mode_component_figure, create_mode_dynamics_figure,
+                                create_growth_direction_figure,
+                                create_mode_component_figure,
+                                create_mode_dynamics_figure,
                                 create_signal_curve_figure, create_spectrum_figure,
                                 create_time_curves_figure)
 from dmdsim.app.styling import (PAIR_PALETTE, PAIR_PALETTE_DARK, THEMES, header,
-                                header_styles, hint, hint_styles, info_box,
-                                info_styles, page_css, step_colors, style_figure,
-                                tab_css, theme_colors)
+                                header_styles, halfplane_colors, hint, hint_styles,
+                                info_box, info_styles, page_css, step_colors,
+                                style_figure, tab_css, theme_colors)
 
 # keep the flowTorch info messages out of the application output
 logging.getLogger("flowtorch").setLevel(logging.WARNING)
@@ -42,6 +44,8 @@ _DOMAIN_LENGTH = 1.0
 _PLAY_INTERVAL_MS = 60
 _WATCHDOG_INTERVAL_MS = 500
 _SHUTDOWN_GRACE_MS = 2000
+# vertical offset of the travel-direction triangles above the eigenvalue markers
+_DIRECTION_MARKER_OFFSET = 0.13
 
 # per-mode editor defaults: wavenumber, frequency, amplitude, growth rate, active
 _MODE_DEFAULTS: list[tuple[float, float, float, float, bool]] = [
@@ -50,14 +54,25 @@ _MODE_DEFAULTS: list[tuple[float, float, float, float, bool]] = [
     (1.0, 20.0, 1.0, 0.0, False),
 ]
 
+# signal and fit parameters restored by the panel-1 reset button; the keys name
+# the spinner attributes (``_<key>_spinner``)
+_DEFAULT_SIGNAL_PARAMS: dict[str, float | int] = {
+    "n_modes": 3, "f_min": 1.0, "f_max": 10.0, "dt": 0.01, "n_time": 300,
+    "offset": 0.0, "noise": 0, "rank": 0,
+}
+
 _HINT_EIGENVALUES = ("Radius |λ| encodes growth/decay: outside the unit circle the mode "
                      "grows, inside it decays. The angle encodes the frequency "
-                     "f = arg(λ) / (2π·dt). Drag an eigenvalue to edit it — its "
-                     "conjugate partner mirrors automatically and the reconstruction, "
-                     "spectrum, and spiral update live. With 'lock to unit circle' "
-                     "active, dragged eigenvalues stay neutral (|λ| = 1) and only "
-                     "their frequency changes. A refit (Run DMD or a signal change) "
-                     "restores the fitted values.")
+                     "f = arg(λ) / (2π·dt). The shaded half planes mark the sign of "
+                     "Im λ (equivalently the frequency sign), and the small triangle "
+                     "above each eigenvalue points in the travel direction of its "
+                     "wave — it flips when the eigenvalue crosses the real axis. "
+                     "Drag an eigenvalue to edit it — its conjugate partner mirrors "
+                     "automatically and the reconstruction, spectrum, and spiral "
+                     "update live. With 'lock to unit circle' active, dragged "
+                     "eigenvalues stay neutral (|λ| = 1) and only their frequency "
+                     "changes. A refit (Run DMD or a signal change) restores the "
+                     "fitted values.")
 _HINT_DYNAMICS = ("Powers λᵗ of the selected mode in the complex plane, animated with "
                   "the global time cursor: the trail spirals inward (decay), outward "
                   "(growth) or orbits on a circle (neutral); the rotation speed is the "
@@ -66,7 +81,13 @@ _HINT_SPECTRUM = ("Mode amplitude |b| (how strong each mode is) over frequency; 
                   "conjugate pairs appear as mirror peaks and share their color. "
                   "Position encodes stability (radius = growth/decay), the large "
                   "marker is the selected eigenvalue, and the dashed lines mark the "
-                  "Nyquist limits ±1/(2·dt).")
+                  "Nyquist limits ±1/(2·dt). The right-hand plane shows each "
+                  "mode's growth rate σ = Re(ln λ)/dt (horizontal) over its phase "
+                  "velocity c = −2πf/κ (vertical): above the zero line the wave "
+                  "travels toward +x, below it toward −x — conjugate partners "
+                  "coincide there (one physical wave), and dragging an eigenvalue "
+                  "across the real axis moves its point across the zero line, "
+                  "flipping the direction.")
 _HINT_MODE = ("Complex spatial shape φ(s): Re and Im form the wave profile, |φ| its "
               "magnitude, and arg(φ) the local phase shift. A linear arg(φ) corresponds "
               "to a wavenumber.")
@@ -90,7 +111,9 @@ _HINT_DIRECTION = ("The wave contribution Re{φ·b·λᵗ} of the selected mode,
                    "with the time cursor: watch it travel. The arrow shows the "
                    "propagation direction; the info box derives the wavenumber κ, "
                    "the wavelength λ_w, and the phase velocity c from the phase "
-                   "slope.")
+                   "slope. The eigenvalue's half plane sets the sign of f, which "
+                   "together with the sign of κ fixes the direction via "
+                   "c = −2πf/κ.")
 
 
 def _spinner(title: str, value: float | int, low: float | int, high: float | int,
@@ -152,6 +175,7 @@ class DMDPlayground:
         self._syncing_mode = False
         self._syncing_drag = False
         self._syncing_amplitude = False
+        self._syncing_params = False
         self._cached_pairs: list[tuple[int, int]] = []
         self._fit_amplitudes: np.ndarray | None = None
         self._fit_eigvals: np.ndarray | None = None
@@ -173,6 +197,11 @@ class DMDPlayground:
         # BISECTION: initial _apply_theme disabled temporarily
         # self._apply_theme()
         self._attach_callbacks()
+        # the root must be added after the callbacks are wired: bokeh resolves
+        # incoming events (e.g. ButtonClick) via the models subscribed at
+        # attach time, so on_click handlers registered after add_root would
+        # never fire in the browser
+        self._doc.add_root(self._layout_root)
         self._run_dmd()
 
     def _build_widgets(self) -> None:
@@ -232,6 +261,13 @@ class DMDPlayground:
             "border-radius": "6px",
             "font-weight": "500",
         }
+        # reset buttons: panel 1 restores the default signal parameters, panels
+        # 2-5 restore the fitted DMD values (the layout places one per panel)
+        self._reset_signal_button = Button(label="↺ reset parameters", width=170)
+        self._reset_fit_buttons: dict[str, Button] = {}
+        for key in ("eigen", "spectrum", "modes", "recon"):
+            self._reset_fit_buttons[key] = Button(label="↺ reset to DMD fit",
+                                                  width=170)
         self._status_div = info_box()
         # interactive elements of the quantity views
         self._mode_slider = Slider(title="eigenvalue number", start=0, end=0, value=0,
@@ -289,7 +325,10 @@ class DMDPlayground:
         :return: None
         :rtype: None
         """
-        self._eigenvalue_figure, self._eigenvalue_source = create_eigenvalue_figure()
+        self._eigenvalue_figure, self._eigenvalue_source, \
+            self._upper_halfplane_renderer, self._lower_halfplane_renderer, \
+            self._upper_halfplane_label, self._lower_halfplane_label = \
+            create_eigenvalue_figure()
         (self._dynamics_figure, self._dynamics_trail_source, self._dynamics_point_source,
          self._dynamics_all_source, self._dynamics_trail_renderer) = \
             create_mode_dynamics_figure()
@@ -297,6 +336,8 @@ class DMDPlayground:
             create_direction_figure()
         self._spectrum_figure, self._spectrum_source, self._nyquist_spans = \
             create_spectrum_figure()
+        self._continuous_figure, self._continuous_source = \
+            create_growth_direction_figure()
         self._signal_figure, self._signal_line_source, self._signal_line_renderer = \
             create_signal_curve_figure()
         (self._time_figure, self._time_source, self._pair_source,
@@ -311,6 +352,7 @@ class DMDPlayground:
             (self._eigenvalue_figure, "eigenvalues"),
             (self._dynamics_figure, "eigenvalues"),
             (self._spectrum_figure, "spectrum"),
+            (self._continuous_figure, "spectrum"),
             (self._time_figure, "reconstruction"),
             (self._signal_figure, "setup"),
             *[(mode_figure, "modes") for mode_figure, _ in self._mode_views.values()],
@@ -336,8 +378,7 @@ class DMDPlayground:
         self._mode_tab_sheet = InlineStyleSheet(
             css=tab_css(mode, accent=step_colors("modes", mode)[1], vertical=False))
         # application bar: title and theme switch
-        title_div = Div(text="<b>DMD Playground</b> — an interactive companion to the "
-                             "DMD lecture",
+        title_div = Div(text="<b>DMD Playground</b>",
                         styles={"color": theme_colors(mode)["text"],
                                 "font-size": "15px", "padding": "8px 6px"},
                         width=900)
@@ -367,7 +408,8 @@ class DMDPlayground:
             ("1 · Signal", "design a traveling-wave signal and run the DMD fit", 1),
             ("2 · Eigenvalues", "inspect the fitted eigenvalues — drag them and watch "
                                 "the reconstruction respond", 2),
-            ("3 · Spectrum", "see each mode's amplitude over frequency", 3),
+            ("3 · Spectrum", "see each mode's amplitude, growth, and propagation "
+                             "direction", 3),
             ("4 · Mode shapes", "look at Re/Im/phase of each mode and its traveling "
                                 "wave", 4),
             ("5 · Reconstruction", "compare the reconstruction against the original "
@@ -423,7 +465,7 @@ class DMDPlayground:
             self._themed_header("DMD fit", "setup"),
             self._rank_spinner,
             self._auto_toggle,
-            self._run_button,
+            row(self._run_button, self._reset_signal_button),
             self._status_div,
             spacing=8,
         )
@@ -437,16 +479,19 @@ class DMDPlayground:
         signal_panel = row(controls, animation, spacing=14)
         eigen_panel = column(
             row(self._dynamics_mode_slider, self._sort_select, self._amplitude_spinner,
-                self._lock_toggle),
+                self._lock_toggle, self._reset_fit_buttons["eigen"]),
             row(self._eigenvalue_figure, self._dynamics_figure),
             row(self._eigen_time_slider, self._eigen_play_toggle),
             row(self._themed_hint(_HINT_EIGENVALUES, width=620),
                 self._themed_hint(_HINT_DYNAMICS, width=620)),
             spacing=10,
         )
-        spectrum_panel = column(self._spectrum_figure,
-                                self._themed_hint(_HINT_SPECTRUM, width=620),
-                                spacing=10)
+        spectrum_panel = column(
+            self._reset_fit_buttons["spectrum"],
+            row(self._spectrum_figure, self._continuous_figure),
+            self._themed_hint(_HINT_SPECTRUM, width=620),
+            spacing=10,
+        )
         mode_tabs = Tabs(tabs=[
             TabPanel(child=column(self._mode_views["real"][0],
                                   self._themed_hint(_HINT_REAL, width=1000), spacing=8),
@@ -464,10 +509,11 @@ class DMDPlayground:
         ], tabs_location="above",
             stylesheets=[self._mode_tab_sheet])
         self._mode_tabs = mode_tabs
-        mode_panel = column(self._mode_slider, mode_tabs, spacing=10)
+        mode_panel = column(row(self._mode_slider, self._reset_fit_buttons["modes"]),
+                            mode_tabs, spacing=10)
         time_panel = column(
             self._themed_header("Time &amp; mode selection", "reconstruction"),
-            row(self._time_slider, self._play_toggle),
+            row(self._time_slider, self._play_toggle, self._reset_fit_buttons["recon"]),
             self._mode_select,
             self._time_figure,
             row(self._themed_hint(_HINT_TIME, width=500), self._readout_div),
@@ -485,7 +531,8 @@ class DMDPlayground:
         self._mode_tabs.stylesheets = [self._mode_tab_sheet]
         self._layout_root = column(app_bar, self._tabs, spacing=8,
                                    stylesheets=[self._page_sheet])
-        self._doc.add_root(self._layout_root)
+        # the root is added to the document by __init__ AFTER the callbacks
+        # are wired (bokeh's event subscription happens at attach time)
 
     def _themed(self, div: Div, kind: str, step: str = "") -> None:
         """
@@ -570,6 +617,12 @@ class DMDPlayground:
         self._curve_renderers["reconstruction"].glyph.line_color = \
             theme["line_reconstruction"]
         self._curve_renderers["selection"].glyph.line_color = theme["line_selection"]
+        # the half-plane shading of the eigenvalue plane follows the theme
+        upper_color, lower_color = halfplane_colors(self._theme)
+        self._upper_halfplane_renderer.glyph.fill_color = upper_color
+        self._lower_halfplane_renderer.glyph.fill_color = lower_color
+        self._upper_halfplane_label.text_color = upper_color
+        self._lower_halfplane_label.text_color = lower_color
         for div, kind, step in self._themed_divs:
             if kind == "header":
                 div.styles = header_styles(step, self._theme)
@@ -669,6 +722,10 @@ class DMDPlayground:
         self._eigenvalue_source.on_change("data", self._on_eigenvalue_drag)
         self._amplitude_spinner.on_change("value", self._on_amplitude_change)
         self._run_button.on_click(self._run_dmd)
+        self._reset_signal_button.on_click(self._reset_signal_parameters)
+        for key, button in self._reset_fit_buttons.items():
+            button.on_click(partial(self._reset_to_fit,
+                                    reselect=(key == "recon")))
         self._auto_toggle.on_change("value", self._on_auto_toggle)
         # keep the frequency bounds mutually consistent
         self._f_min_spinner.on_change("value", self._on_f_min_change)
@@ -767,6 +824,69 @@ class DMDPlayground:
         else:
             self._status_div.text = f"round-trip error {error:.1e}"
 
+    def _reset_signal_parameters(self) -> None:
+        """
+        Restore the default signal and fit parameters and refit the DMD.
+
+        The spinner values are written directly under the ``_syncing_params``
+        guard so the change callbacks neither refit repeatedly nor clamp the
+        frequency bounds against each other; the bounds are restored explicitly
+        and one single refit follows.
+
+        :return: None
+        :rtype: None
+        """
+        if self._syncing_params:
+            return
+        self._syncing_params = True
+        for name, value in _DEFAULT_SIGNAL_PARAMS.items():
+            setattr(getattr(self, f"_{name}_spinner"), "value", value)
+        self._f_min_spinner.high = _DEFAULT_SIGNAL_PARAMS["f_max"]
+        self._f_max_spinner.low = _DEFAULT_SIGNAL_PARAMS["f_min"]
+        self._auto_toggle.value = "on"
+        self._syncing_params = False
+        self._run_dmd()
+
+    def _reset_to_fit(self, reselect: bool = False) -> None:
+        """
+        Restore the fitted eigenvalues and amplitudes and refresh all views.
+
+        The reset undoes every eigenvalue drag (including unit-circle-locked
+        ones) and every |b| scaling: the cached fit baselines are written back,
+        the reconstruction is recomputed, and the eigenvalue plane, spectrum,
+        continuous-time plane, and time/dynamics views are updated. The panel-5
+        button additionally checks all mode-selection boxes again.
+
+        :param reselect: whether to restore the full mode selection as well
+        :type reselect: bool
+        :return: None
+        :rtype: None
+        """
+        result = self._result
+        if result is None or self._signal is None or self._fit_eigvals is None \
+                or self._fit_amplitudes is None:
+            return
+        result.eigvals = self._fit_eigvals.copy()
+        result.amplitudes = self._fit_amplitudes.copy()
+        self._locked_edit_indices = set()
+        self._drag_cache = (result.eigvals.real.copy(), result.eigvals.imag.copy())
+        self._syncing_amplitude = True
+        self._amplitude_spinner.value = 1.0
+        self._syncing_amplitude = False
+        self._reconstruction = synthesize(result.modes, result.amplitudes,
+                                          result.eigvals, self._signal.dt,
+                                          self._signal.n_time)
+        self._update_eigenvalue_markers()
+        self._update_spectrum()
+        if reselect:
+            # restoring the selection fires the view callbacks (time view incl.)
+            self._update_mode_select()
+        else:
+            self._update_time_view()
+        error = float(np.abs(self._reconstruction - self._signal.samples).max())
+        self._status_div.text = (f"reset to the fitted values — round-trip error "
+                                 f"{error:.1e}")
+
     def _mode_field(self, index: int, t_index: int) -> np.ndarray:
         """
         Compute the real contribution of one mode to the field at a single time level.
@@ -781,6 +901,77 @@ class DMDPlayground:
         result = self._result
         dynamics = result.amplitudes[index] * result.eigvals[index] ** t_index
         return np.real(result.mode(index) * dynamics)
+
+    def _phase_slopes(self) -> np.ndarray:
+        """
+        Compute the unwrapped phase slope :math:`\\kappa` of every mode shape.
+
+        The slope of :math:`\\arg(\\phi_i)` along space is the wavenumber of the
+        mode; its sign together with the sign of the frequency fixes the
+        propagation direction via :math:`c = -2\\pi f / \\kappa`.
+
+        :return: phase slope of each mode in radians per unit length, shape ``(n_modes,)``
+        :rtype: np.ndarray
+        """
+        result = self._result
+        s = self._signal.space
+        return np.array([float(np.polyfit(s, np.unwrap(np.angle(result.mode(i))), 1)[0])
+                         for i in range(result.n_modes)])
+
+    def _phase_velocities(self) -> np.ndarray:
+        """
+        Compute the signed phase velocity :math:`c = -2\\pi f / \\kappa` of every mode.
+
+        The sign of :math:`c` is the propagation direction (positive toward
+        :math:`+x`); modes whose shape has no spatial phase variation do not
+        propagate and get a velocity of zero.
+
+        :return: phase velocity of each mode in units per second, shape ``(n_modes,)``
+        :rtype: np.ndarray
+        """
+        slopes = self._phase_slopes()
+        propagating = np.abs(slopes) > 1e-12
+        frequencies = self._result.frequencies
+        return np.where(propagating,
+                        -2.0 * np.pi * frequencies
+                        / np.where(propagating, slopes, 1.0),
+                        0.0)
+
+    def _direction_marker_columns(self) -> dict[str, list]:
+        """
+        Build the travel-direction triangle columns of the eigenvalue plane.
+
+        Each triangle sits above its eigenvalue marker and points toward the
+        propagation direction of the mode's wave (rotated toward :math:`+x` or
+        :math:`-x`); it shares the pair color and the selection emphasis of the
+        marker, and NaN coordinates hide it for non-propagating modes.
+
+        :return: data-source columns ``dir_x``, ``dir_y``, ``dir_angle``,
+            ``dir_color``, and ``dir_size`` with one entry per mode
+        :rtype: dict[str, list]
+        """
+        result = self._result
+        index = min(int(self._mode_slider.value), result.n_modes - 1)
+        velocities = self._phase_velocities()
+        colors = self._pair_colors()
+        columns: dict[str, list] = dict(dir_x=[], dir_y=[], dir_angle=[],
+                                        dir_color=[], dir_size=[])
+        for i in range(result.n_modes):
+            columns["dir_color"].append(colors[i])
+            columns["dir_size"].append(11 if i == index else 8)
+            if abs(velocities[i]) <= 1e-12:
+                # no propagation: hide the triangle via NaN coordinates
+                columns["dir_x"].append(float("nan"))
+                columns["dir_y"].append(float("nan"))
+                columns["dir_angle"].append(0.0)
+                continue
+            columns["dir_x"].append(float(result.eigvals[i].real))
+            columns["dir_y"].append(float(result.eigvals[i].imag)
+                                    + _DIRECTION_MARKER_OFFSET)
+            # the default triangle points up: rotate it toward the travel direction
+            columns["dir_angle"].append(-0.5 * np.pi if velocities[i] > 0.0
+                                        else 0.5 * np.pi)
+        return columns
 
     def _update_field_view(self) -> None:
         """
@@ -801,9 +992,10 @@ class DMDPlayground:
 
     def _update_quantities(self) -> None:
         """
-        Update the eigenvalue plane, the spectrum, and their axis ranges, and
-        refresh the cached editing state (pairs, fitted amplitudes, marker
-        positions) for the eigenvalue editing.
+        Update the eigenvalue plane, the spectrum, and the continuous-time
+        eigenvalue plane with their axis ranges, and refresh the cached editing
+        state (pairs, fitted amplitudes, marker positions) for the eigenvalue
+        editing.
 
         :return: None
         :rtype: None
@@ -811,11 +1003,17 @@ class DMDPlayground:
         result = self._result
         if result is None or result.n_modes == 0:
             self._eigenvalue_source.data = dict(re=[], im=[], index=[], frequency=[],
-                                                growth=[], color=[], size=[])
+                                                growth=[], color=[], size=[],
+                                                dir_x=[], dir_y=[], dir_angle=[],
+                                                dir_color=[], dir_size=[])
             self._spectrum_source.data = dict(frequency=[], amplitude=[], index=[],
                                               growth=[], color=[], width=[], size=[])
+            self._continuous_source.data = dict(sigma=[], velocity=[], index=[],
+                                                color=[], size=[], frequency=[],
+                                                direction=[])
             self._cached_pairs = []
             self._fit_amplitudes = None
+            self._fit_eigvals = None
             self._drag_cache = (np.array([]), np.array([]))
             return
         self._update_eigenvalue_markers()
@@ -881,7 +1079,9 @@ class DMDPlayground:
         result = self._result
         if result is None or result.n_modes == 0:
             self._eigenvalue_source.data = dict(re=[], im=[], index=[], frequency=[],
-                                                growth=[], color=[], size=[])
+                                                growth=[], color=[], size=[],
+                                                dir_x=[], dir_y=[], dir_angle=[],
+                                                dir_color=[], dir_size=[])
             self._dynamics_all_source.data = dict(x=[], y=[], index=[], color=[],
                                                   size=[])
             return
@@ -891,12 +1091,14 @@ class DMDPlayground:
         # the plane source drives the drag tool: guard its refill against the
         # drag callback (fired by this very assignment)
         self._syncing_drag = True
-        self._eigenvalue_source.data = dict(re=result.eigvals.real,
-                                            im=result.eigvals.imag,
-                                            index=list(range(result.n_modes)),
-                                            frequency=result.frequencies,
-                                            growth=result.growth_rates,
-                                            color=colors, size=sizes)
+        data = dict(re=result.eigvals.real,
+                    im=result.eigvals.imag,
+                    index=list(range(result.n_modes)),
+                    frequency=result.frequencies,
+                    growth=result.growth_rates,
+                    color=colors, size=sizes)
+        data.update(self._direction_marker_columns())
+        self._eigenvalue_source.data = data
         self._syncing_drag = False
         self._dynamics_all_source.data = dict(x=result.eigvals.real,
                                               y=result.eigvals.imag,
@@ -905,11 +1107,15 @@ class DMDPlayground:
 
     def _update_spectrum(self) -> None:
         """
-        Update the DMD spectrum with stability colors and the selection emphasis.
+        Update the DMD spectrum and the growth-direction plane with stability
+        colors and the selection emphasis.
 
         Stems and markers are red for growing, blue for decaying and gray for
         neutral modes; the selected eigenvalue is drawn larger. The dashed
-        Nyquist spans and the frequency axis follow the current time step.
+        Nyquist spans and the frequency axis follow the current time step; the
+        growth-direction plane plots the growth rate over the signed phase
+        velocity :math:`c = -2\\pi f/\\kappa` and sizes both of its axes from
+        the fitted data.
 
         :return: None
         :rtype: None
@@ -918,21 +1124,43 @@ class DMDPlayground:
         if result is None or result.n_modes == 0:
             self._spectrum_source.data = dict(frequency=[], amplitude=[], index=[],
                                               growth=[], color=[], width=[], size=[])
+            self._continuous_source.data = dict(sigma=[], velocity=[], index=[],
+                                                color=[], size=[], frequency=[],
+                                                direction=[])
             return
         index = min(int(self._mode_slider.value), result.n_modes - 1)
         colors = self._pair_colors()
         sizes = [14 if i == index else 7 for i in range(result.n_modes)]
         widths = [3 if i == index else 2 for i in range(result.n_modes)]
-        self._spectrum_source.data = dict(frequency=result.frequencies,
+        frequencies = result.frequencies
+        self._spectrum_source.data = dict(frequency=frequencies,
                                           amplitude=np.abs(result.amplitudes),
                                           index=list(range(result.n_modes)),
                                           growth=result.growth_rates,
                                           color=colors, width=widths, size=sizes)
+        # phase velocity c = -2*pi*f/kappa: its sign is the propagation
+        # direction; modes without spatial phase variation do not propagate
+        velocities = self._phase_velocities()
+        directions = ["+x" if v > 1e-12 else ("−x" if v < -1e-12 else "—")
+                      for v in velocities]
+        self._continuous_source.data = dict(sigma=result.growth_rates,
+                                            velocity=velocities,
+                                            index=list(range(result.n_modes)),
+                                            color=colors, size=sizes,
+                                            frequency=frequencies,
+                                            direction=directions)
         nyquist = 0.5 / self._signal.dt
         self._spectrum_figure.x_range.start = -1.15 * nyquist
         self._spectrum_figure.x_range.end = 1.15 * nyquist
         self._nyquist_spans[0].location = -nyquist
         self._nyquist_spans[1].location = nyquist
+        # both axes of the growth-direction plane follow the fitted data
+        c_limit = max(1.15 * float(np.abs(velocities).max()), 1.0)
+        self._continuous_figure.y_range.start = -c_limit
+        self._continuous_figure.y_range.end = c_limit
+        sigma_limit = max(1.15 * float(np.abs(result.growth_rates).max()), 1.0)
+        self._continuous_figure.x_range.start = -sigma_limit
+        self._continuous_figure.x_range.end = sigma_limit
 
     def _update_mode_slider(self) -> None:
         """
@@ -1025,7 +1253,7 @@ class DMDPlayground:
         frequency = float(result.frequencies[index])
         header = (f"<b>mode {index}</b> · f = {frequency:.3f} Hz · "
                   f"|b| = {np.abs(amplitude):.3f}<br>")
-        slope = float(np.polyfit(self._signal.space, np.unwrap(np.angle(shape)), 1)[0])
+        slope = float(self._phase_slopes()[index])
         if abs(slope) < 1e-12:
             self._direction_arrow.visible = False
             self._direction_div.text = (header
@@ -1038,10 +1266,14 @@ class DMDPlayground:
             self._direction_div.text = (header
                                         + f"κ = {slope:.3f} rad per unit length → "
                                         f"wavelength λ_w = {wavelength:.2f}"
-                                        " — standing pattern (zero frequency)")
+                                        " — standing pattern (eigenvalue on the "
+                                        "real axis, zero frequency)")
             return
         velocity = -2.0 * np.pi * frequency / slope
         direction = "+x" if velocity > 0.0 else "−x"
+        eigval = result.eigvals[index]
+        side = "above" if eigval.imag > 0.0 else "below"
+        sign = ">" if eigval.imag > 0.0 else "<"
         self._direction_arrow.visible = True
         if velocity > 0.0:
             self._direction_arrow.x_start = 0.35
@@ -1055,8 +1287,10 @@ class DMDPlayground:
         self._direction_div.text = (
             header
             + f"κ = {slope:+.3f} rad per unit length → λ_w = {wavelength:.2f}<br>"
-            f"phase velocity c = {abs(velocity):.2f} units per second toward "
-            f"{direction} {arrow_char}")
+            + f"Im λ = {eigval.imag:+.4f} → eigenvalue {side} the real axis "
+              f"(f {sign} 0)<br>"
+            + f"phase velocity c = −2πf/κ = {abs(velocity):.2f} units per second "
+              f"toward {direction} {arrow_char}")
 
     def _update_mode_select(self) -> None:
         """
@@ -1239,6 +1473,9 @@ class DMDPlayground:
         updated["im"] = im
         updated["frequency"] = self._result.frequencies
         updated["growth"] = self._result.growth_rates
+        # the direction triangles follow the dragged eigenvalues (position and,
+        # after a real-axis crossing, the flipped travel direction)
+        updated.update(self._direction_marker_columns())
         self._eigenvalue_source.data = updated
         markers = self._dynamics_all_source.data
         x = np.asarray(markers["x"], dtype=np.float64).copy()
@@ -1335,6 +1572,8 @@ class DMDPlayground:
         :return: None
         :rtype: None
         """
+        if self._syncing_params:
+            return
         if float(new) > float(self._f_max_spinner.value):
             # re-triggers this callback with the clamped value
             self._f_min_spinner.value = self._f_max_spinner.value
@@ -1354,6 +1593,8 @@ class DMDPlayground:
         :return: None
         :rtype: None
         """
+        if self._syncing_params:
+            return
         if float(new) < float(self._f_min_spinner.value):
             # re-triggers this callback with the clamped value
             self._f_max_spinner.value = self._f_min_spinner.value
@@ -1380,6 +1621,8 @@ class DMDPlayground:
         :return: None
         :rtype: None
         """
+        if self._syncing_params:
+            return
         if widget is not None and not isinstance(widget, Toggle) \
                 and isinstance(new, (int, float)):
             # enforce the declared bounds on typed values and refit once, clamped
@@ -1408,6 +1651,8 @@ class DMDPlayground:
         :return: None
         :rtype: None
         """
+        if self._syncing_params:
+            return
         if new == "on":
             self._run_dmd()
 

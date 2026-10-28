@@ -566,3 +566,136 @@ modules change.
 - Open decisions: slider naming (kept "eigenvalue number" per earlier user
   choice), default sort (kept integral contribution, tooltip explains it).
 
+
+## M4b — GUI polish: per-panel resets, title, continuous-time plane, direction link (2026-10-28)
+
+Scope: items 1–4 of the user's `ideas_for_review.txt` (GUI polishing);
+decisions confirmed with the user (per-panel reset semantics, continuous-time
+plane as the "discrete vs. continuous" addition, half-plane shading for the
+direction link).
+
+- **Reset buttons (item 1)**: panel 1 gets "↺ reset parameters" (restores
+  `_DEFAULT_SIGNAL_PARAMS` — Nₘ=3, fₘᵢₙ=1, fₘₐₓ=10, Δt=0.01, nₜᵢₘₑ=300,
+  offset=0, σₙₒᵢₛₑ=0, rank=0 — plus auto-rerun "on", then one refit); panels
+  2–5 get "↺ reset to DMD fit" (`_reset_to_fit`: restores the cached fit
+  baselines `_fit_eigvals`/`_fit_amplitudes`, clears locked edits and the drag
+  cache, |b| scale → 1, recomputes the reconstruction, refreshes the quantity
+  and time views; panel 5 additionally re-selects all modes). New
+  `_syncing_params` guard keeps the change callbacks idle during the
+  programmatic restore (no refit storms, no mutual clamping of the frequency
+  bounds — those are set explicitly).
+- **Title (item 2)**: app bar now shows only "DMD Playground" (lecture
+  reference removed).
+- **Continuous-time plane (item 3)**: new
+  `create_continuous_spectrum_figure()` — μ = ln(λ)/Δt plane with axes
+  σ = Re(μ) [1/s] and f = Im(μ)/(2π) [Hz], dashed zero axes, pair colors and
+  selection emphasis shared with the spectrum, hover with mode/σ/f; placed
+  beside the amplitude spectrum in panel 3 (both 620×560); y-range shares the
+  Nyquist range, σ-range follows the fitted data; refreshed wherever the
+  spectrum is refreshed (refit, sort, drag, amplitude edit).
+- **Direction link (item 4)**: the eigenvalue plane shades the upper/lower
+  half planes (`HALF_PLANE_COLORS` in styling.py, labels "f > 0"/"f < 0"
+  carrying the same colors; hover scoped to the scatter so the patches don't
+  capture it); the propagation-direction readout gained the explicit line
+  "Im λ = … → eigenvalue above/below the real axis (f ≷ 0)" and shows the
+  formula c = −2πf/κ; hints updated (dragging across the real axis flips the
+  propagation direction).
+- **Fix included**: `_update_quantities` now also clears `_fit_eigvals` in the
+  zero-mode branch (stale baseline would break `_reset_to_fit`).
+- Debug tooling: `run/debug_server.py` extended to six tabs `/t0`–`/t5`
+  (Start panel shift had left it at five); `run/screenshot_tabs.py` waits for
+  `canvas, .bk-btn` (the Start tab has no canvas) and clicks the direction
+  sub-tab on `/t4`.
+- Verification: pytest 15 passed; headless verification script
+  `run/verify_gui_polish.py` (11 checks: title, wired buttons, amplitude/drag
+  reset round trips, panel-5 reselect, parameter reset with consistent
+  bounds, continuous-plane data/ranges, direction side line, real-axis drag
+  flip of side + arrow, half-plane colors across a theme switch) under
+  `-W error::UserWarning`; vision review (image-reviewer agent, six fresh
+  captures): "acceptable to show", all changes present and clean; review
+  report appended to `run/reports/2026-10-28.md` (0 bugs, O16–O19 new
+  suggestions).
+
+## M4b follow-up — panel 3: propagation direction instead of f on the vertical axis (2026-10-28)
+
+User remark on the growth-direction plane introduced in M4b: the vertical axis
+should carry the propagation direction directly, not the signed frequency
+(whose direction meaning depends on the sign of κ).
+
+- `create_continuous_spectrum_figure` renamed to
+  `create_growth_direction_figure`: the plane now plots growth rate
+  σ = Re(ln λ)/dt (x) over the signed phase velocity c = −2πf/κ (y); the sign
+  of c IS the direction (above the zero line toward +x, below toward −x), so
+  dragging an eigenvalue across the real axis moves its point across the zero
+  line — universally, independent of κ's sign. Conjugate partners coincide
+  exactly (σ and c are equal for a pair: one physical wave, one point).
+- New `_phase_slopes()` helper (unwrapped arg(φ) slope per mode, the
+  wavenumber κ); `_update_spectrum` derives c = −2πf/κ per mode (zeroed for
+  shapes without phase slope — they do not propagate) plus a hover direction
+  column ("+x"/"−x"/"—"); both plane axes are data-driven now. The direction
+  readout reuses the helper (no duplicated polyfit).
+- Axis labels: "σ [1/s]" and "c = −2πf/κ [units/s]"; hover shows mode, σ, f,
+  c, and the travel direction; spectrum hint and Start-panel description
+  updated.
+- Verification: pytest 15 passed; `run/verify_gui_polish.py` extended (velocity
+  formula check per mode, direction strings, data-driven y-range, and a
+  real-axis drag flipping the plane velocity sign) — all green under
+  `-W error::UserWarning`; vision review of tab3: "acceptable to show", no
+  regressions in the other panels.
+
+## M4b follow-up 2 — travel-direction triangles in the eigenvalue plane (2026-10-28)
+
+User clarification: the previous "instead of f" remark targeted the shaded
+background of the eigenvalue plane (panel 2), not panel 3. Design decision
+confirmed with the user after a numeric check showed that a static
+half-plane direction label cannot be correct: both members of a fitted
+conjugate pair travel the SAME direction (verified: all fitted generated
+waves share +x regardless of half-plane), and the half-plane↔direction
+association of a pair flips once it is dragged across the real axis.
+
+- The eigenvalue plane now shows a small travel-direction triangle above each
+  eigenvalue marker (same pair color, selection emphasis, rotated toward +x or
+  −x; NaN coordinates hide it for non-propagating modes such as the offset
+  mode). The triangles live in the SAME data source (columns ``dir_x``/``dir_y``/
+  ``dir_angle``/``dir_color``/``dir_size``), are refilled with the markers, and
+  the drag handler updates them so they follow a dragged eigenvalue and flip
+  when it crosses the real axis.
+- Shading labels changed from "f > 0"/"f < 0" to "Im λ > 0"/"Im λ < 0" (the
+  shading stays the frequency-sign backdrop; the triangles carry the
+  direction). New helpers: `_phase_velocities()` (shared by the triangles and
+  the growth-direction plane) and `_direction_marker_columns()`; the
+  growth-direction plane in panel 3 stays as approved.
+- Hints updated; verification extended (triangle geometry, NaN hiding for the
+  offset mode, label texts, triangle follow + flip during a real-axis drag) —
+  all green under `-W error::UserWarning`, pytest 15 passed; vision review of
+  tab2: "acceptable to show", no regressions.
+
+## M4b follow-up 3 — reset buttons did not fire in the browser (event subscription bug) (2026-10-28)
+
+User report: the reset button was not resetting the eigenvalues in the
+figure. Root cause found by browser-level debugging (client-side data patch +
+real button clicks via Playwright, server-log and event-pipeline tracing):
+
+- **Root cause**: `on_click` handlers were registered in `_attach_callbacks`
+  AFTER `doc.add_root(...)` (inside `_build_layout`). Bokeh resolves incoming
+  events via `document.callbacks._subscribed_models`, populated by
+  `_update_event_callbacks()` — which runs only in `Model._attach_document`,
+  i.e. at attach time. Models whose callbacks are registered after the attach
+  are never subscribed, so incoming `ButtonClick` events are silently dropped
+  (no client or server error). Property-change callbacks (`on_change`) use a
+  different path and were unaffected — which is why dragging, sliders, and
+  auto-rerun all worked while every `Button` (Run DMD included, masked by
+  auto-rerun; the Start panel's Open buttons excepted — they were wired
+  before the root was added) was dead in the browser.
+- **Fix**: `__init__` now adds the root AFTER `_attach_callbacks` (with an
+  explanatory comment); `_build_layout` only builds and stores the layout.
+- **Verification**: headless check of `document.callbacks._subscribed_models`
+  (11 buttons subscribed) and document-level event dispatch
+  (`doc.callbacks.trigger_event(ButtonClick(...))`) in
+  `run/verify_gui_polish.py` (all reset invocations now go through the real
+  dispatch path); browser-level Playwright test: client-side patch (as the
+  PointDrawTool commits) → real reset click → eigenvalues restored in the
+  figure and status "reset to the fitted values"; Run DMD, reset parameters
+  (defaults restored: rank automatic (10) → (6)), and Open navigation all
+  fire. pytest 15 passed.
+- Pitfall documented in AGENTS.md (wire `on_click` before `doc.add_root`).

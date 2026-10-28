@@ -20,7 +20,7 @@ users are students who just heard the DMD lecture in the ML-CFD course
 - **Docs:** `README.md` (usage), `PLAN.md` (untracked roadmap),
   `documentation/` (internal docs: `architecture.md`, `modules.md`, `steps.md`
   — keep them updated with every step), `run/reports/` (untracked review
-  reports).
+  reports), `ideas_for_review.txt` (user's idea list — see Workflow below).
 
 ## Environment and Commands
 
@@ -92,6 +92,13 @@ GUI-independent and numpy-only; keep it that way.
   behavior on buttons use a standalone `Tooltip` with care (target resolution
   across view trees fails — see the auto-rerun history; Select-based controls
   are the working pattern).
+- **Wire `on_click` before `doc.add_root`** — bokeh resolves incoming events
+  via the models subscribed at attach time (`_attach_document` →
+  `_update_event_callbacks` → `document.callbacks.subscribe`); callbacks
+  registered after the root is added are silently dead in the browser (no
+  error anywhere — property-change callbacks via `on_change` are unaffected).
+  This app wires callbacks in `_attach_callbacks` and adds the root afterwards
+  (`__init__`); `run/verify_gui_polish.py` asserts the subscription.
 - **`Slider`/`Select`/`Switch` do not clamp typed values** and `Slider` has no
   `description` — clamp server-side; put explanations in hints or neighboring
   Spinners.
@@ -125,6 +132,11 @@ GUI-independent and numpy-only; keep it that way.
 - **Commit policy:** commit only when the user declares a revision complete —
   one commit per revision, never push (no remote configured).
 - **PLAN.md is untracked** (user preference) but kept updated locally.
+- **`ideas_for_review.txt`** (untracked, git-ignored): the user's running list
+  of ideas/TODOs. **Check it at the start of every session for new or updated
+  items.** Never delete the file and never commit it; remove individual items
+  from it *only* after the user explicitly confirms they are completed
+  (permission granted), and only then.
 - **`run/` is untracked** internal tooling: `debug_server.py` (serves each tab
   at `/t0`–`/t5` on port **5099** — never 5006), `screenshot_tabs.py`
   (Playwright screenshots; the Playwright venv lives in
