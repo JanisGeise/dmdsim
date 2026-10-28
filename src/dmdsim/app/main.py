@@ -24,9 +24,8 @@ from dmdsim.signals.generator import ModalSignal, generate_modes
 
 from dmdsim.app.figures import (create_direction_figure, create_eigenvalue_figure,
                                 create_growth_direction_figure,
-                                create_mode_component_figure,
                                 create_mode_dynamics_figure,
-                                create_quadrature_figure,
+                                create_phase_figure, create_quadrature_figure,
                                 create_signal_curve_figure, create_space_time_figure,
                                 create_spectrum_figure, create_time_curves_figure)
 from dmdsim.app.styling import (PAIR_PALETTE, PAIR_PALETTE_DARK, THEMES, header,
@@ -55,13 +54,6 @@ _MORPH_STANDING_THRESHOLD = 0.05
 _ARROW_SPEED_SCALE = 0.09
 _ARROW_MIN_LENGTH = 0.04
 _ARROW_MAX_LENGTH = 0.9
-
-# per-mode editor defaults: wavenumber, frequency, amplitude, growth rate, active
-_MODE_DEFAULTS: list[tuple[float, float, float, float, bool]] = [
-    (2.0, 5.0, 1.5, -0.2, True),
-    (3.0, 12.0, 0.8, 0.1, True),
-    (1.0, 20.0, 1.0, 0.0, False),
-]
 
 # signal and fit parameters restored by the panel-1 reset button; the keys name
 # the spinner attributes (``_<key>_spinner``)
@@ -387,7 +379,7 @@ class DMDPlayground:
         (self._time_figure, self._time_source, self._pair_source,
          self._selected_renderer, self._curve_renderers) = create_time_curves_figure()
         # the phase view keeps its own sub-tab (1000 px wide)
-        self._phase_figure, self._phase_source = create_mode_component_figure("phase")
+        self._phase_figure, self._phase_source = create_phase_figure()
         self._space_time_figure, self._space_time_source, self._space_time_mapper = \
             create_space_time_figure(x_range=shape_x_range, height=420, width=615)
         # register figures with their step colors for theming

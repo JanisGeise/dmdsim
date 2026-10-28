@@ -971,3 +971,23 @@ outside (same as panel 4) and decrease the y-range margin.
   1.05, legend-outside assertion); vision review with |b| scale 2.0:
   "acceptable to show" — one-row legend above the frame, curves fill the
   height without clipping.
+
+## Cleanup — documentation, plans, artifacts, dead code (2026-10-28)
+
+Housekeeping pass before the next feature:
+
+- **PLAN.md**: the original v1.0 plan sections (1–8) are now explicitly marked
+  as historical reference; the architecture tree matches the real module
+  layout (samples, styling.py, DMDResult); the milestones table gained M4b/
+  M4c/M4d rows with commit hashes; the decisions/drag-semantics tables note
+  what is implemented vs. still a future idea (arg(b) editing, add/remove
+  modes).
+- **modules.md**: `_update_field_view`/`_update_time_limits` split documented;
+  the phase builder entry updated after the rename.
+- **Artifacts**: all screenshots in `run/screenshots/` deleted (regenerable
+  via `run/screenshot_tabs.py`), `.coverage` removed.
+- **Dead code removed** (review findings O16/O28): the unused `_MODE_DEFAULTS`
+  constant and the generic `create_mode_component_figure` (only its phase
+  view was used) replaced by a dedicated `create_phase_figure()`.
+- Verification: pytest 15 passed; `run/verify_gui_polish.py` all green under
+  `-W error::UserWarning`.

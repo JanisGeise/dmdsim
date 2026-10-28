@@ -208,34 +208,16 @@ def create_growth_direction_figure() -> tuple[figure, ColumnDataSource]:
     return fig, source
 
 
-_MODE_FIGURE_SPECS = {
-    "real": ("Re(φ) over space", "Re(φ)", "#1f77b4"),
-    "imag": ("Im(φ) over space", "Im(φ)", "#ff7f0e"),
-    "phase": ("arg(φ) over space", "arg(φ) [rad]", "#d62728"),
-}
-
-
-def create_mode_component_figure(quantity: str, x_range: Range1d | None = None,
-                                 y_range: Range1d | None = None,
-                                 height: int = 420,
-                                 width: int = 1000) -> tuple[figure, ColumnDataSource]:
+def create_phase_figure(height: int = 420,
+                        width: int = 1000) -> tuple[figure, ColumnDataSource]:
     """
-    Create a single-quantity mode shape figure.
+    Create the phase view of the selected mode shape.
 
-    The phase view renders the unwrapped phase as a continuous line and overlays
-    the wrapped values as faded points to explain the 2π jumps. The imaginary
-    and phase views draw a faded reference line of the fitted shape (column
-    ``reference``) so edits like the quadrature morph are visible against the
-    original.
+    Renders the unwrapped phase as a continuous line, overlays the wrapped
+    values as faded points to explain the 2π jumps, and draws a faded
+    reference line of the fitted phase (column ``reference``) so quadrature
+    edits are visible against the original.
 
-    :param quantity: quantity to display; one of ``real``, ``imag``, or ``phase``
-    :type quantity: str
-    :param x_range: shared x-range for grouping several quantity figures with
-        synced axes, defaults to None (auto range)
-    :type x_range: Range1d | None, optional
-    :param y_range: shared y-range (e.g. one constant ruler for the real and
-        imaginary quadratures), defaults to None (auto range)
-    :type y_range: Range1d | None, optional
     :param height: figure height in pixels, defaults to 420
     :type height: int
     :param width: figure width in pixels, defaults to 1000
@@ -244,40 +226,22 @@ def create_mode_component_figure(quantity: str, x_range: Range1d | None = None,
         ``value``, ``unwrapped``, and ``reference``
     :rtype: tuple[figure, ColumnDataSource]
     """
-    assert quantity in _MODE_FIGURE_SPECS, (
-        f"Unknown mode quantity {quantity!r}, must be one of: {sorted(_MODE_FIGURE_SPECS)}")
-    title, y_label, color = _MODE_FIGURE_SPECS[quantity]
-    options: dict = dict(width=width, height=height, title=title)
-    if x_range is not None:
-        # a shared range object syncs the axes of grouped quantity figures
-        options["x_range"] = x_range
-    if y_range is not None:
-        options["y_range"] = y_range
-    if quantity == "phase":
-        fig = figure(**options, y_range=Range1d(-np.pi - 0.4, np.pi + 0.4))
-    else:
-        fig = figure(**options)
+    color = "#d62728"
+    fig = figure(width=width, height=height, title="arg(φ) over space",
+                 y_range=Range1d(-np.pi - 0.4, np.pi + 0.4))
     source = ColumnDataSource(dict(s=[], value=[], unwrapped=[], reference=[]))
-    if quantity == "phase":
-        # the wrapped values explain where the jumps of the sawtooth come from
-        fig.scatter(x="s", y="value", source=source, size=5, color=color, alpha=0.35,
-                    legend_label="wrapped (±π)")
-        fig.line(x="s", y="unwrapped", source=source, color=color, line_width=2,
-                 legend_label="unwrapped")
-        fig.line(x="s", y="reference", source=source, color=color, line_width=1.5,
-                 line_dash="dotted", line_alpha=0.35,
-                 legend_label="fitted (t = 1)")
-        fig.legend.location = "top_left"
-        fig.legend.click_policy = "hide"
-    else:
-        fig.line(x="s", y="value", source=source, color=color, line_width=2)
-        if quantity == "imag":
-            # faded fitted shape: the morph slider scales the solid curve
-            # against this reference
-            fig.line(x="s", y="reference", source=source, color=color,
-                     line_width=1.5, line_dash="dotted", line_alpha=0.35)
+    # the wrapped values explain where the jumps of the sawtooth come from
+    fig.scatter(x="s", y="value", source=source, size=5, color=color, alpha=0.35,
+                legend_label="wrapped (±π)")
+    fig.line(x="s", y="unwrapped", source=source, color=color, line_width=2,
+             legend_label="unwrapped")
+    fig.line(x="s", y="reference", source=source, color=color, line_width=1.5,
+             line_dash="dotted", line_alpha=0.35,
+             legend_label="fitted (t = 1)")
+    fig.legend.location = "top_left"
+    fig.legend.click_policy = "hide"
     fig.xaxis.axis_label = "x"
-    fig.yaxis.axis_label = y_label
+    fig.yaxis.axis_label = "arg(φ) [rad]"
     return fig, source
 
 

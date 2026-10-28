@@ -128,12 +128,13 @@ the figure plus the data source (and extras where needed):
   refreshed only when its inputs change (refit/sort/mode switch/morph/
   eigenvalue or amplitude edits), not per animation tick.
 
-- `create_mode_component_figure(quantity, x_range=None, y_range=None,
-  height=420, width=1000)` — single-quantity mode shape figure; currently
-  only used for ``quantity = "phase"`` (unwrapped phase line + wrapped ±π
-  faded points + faded fitted-phase reference line with a "fitted (t = 1)"
-  legend entry); source columns ``s``, ``value``, ``unwrapped``, and
-  ``reference``; 1000×420.
+- `create_phase_figure(height=420, width=1000)` — phase view of the selected
+  mode shape: the unwrapped phase as a line, the wrapped ±π values as faded
+  points (explaining the 2π jumps), and a faded fitted-phase reference line
+  with a "fitted (t = 1)" legend entry (source column ``reference``, filled
+  by the app from the fit baseline); source columns ``s``, ``value``,
+  ``unwrapped``, and ``reference``; 1000×420. Currently only the phase view is used (the
+  real/imag views were merged into the quadrature figure in M4c).
 - `create_direction_figure(x_range=None, height=420, width=1000)` —
   traveling-wave view of the selected mode with a direction arrow annotation
   (bokeh `Arrow` + `NormalHead`) and a faded fitted-reference wave line
@@ -303,8 +304,9 @@ silences flowTorch's INFO logging at import time.
   - `_pair_colors()`: one color per conjugate pair (theme-dependent palette;
     unpaired modes gray) shared by eigenvalue plane, dynamics markers,
     spectrum, and reconstruction.
-  - `_update_*` methods: `_update_field_view` (fixed y-ranges for both animated
-    line plots), `_update_quantities` (editing-state cache + marker/spectrum
+  - `_update_*` methods: `_update_field_view` (fixed y-range for the signal
+    view), `_update_time_limits` (fixed y-range for the reconstruction view),
+    `_update_quantities` (editing-state cache + marker/spectrum
     refresh), `_update_eigenvalue_markers` (stability pair colors + selection
     emphasis in both complex-plane plots; guarded against the drag callback),
     `_update_spectrum` (pair colors, selection emphasis, Nyquist spans and
