@@ -7,6 +7,7 @@ modules change.
 
 ## M0 — project setup (2026-10-28)
 
+
 - Created `.venv` (Python 3.12), `pyproject.toml` (src layout, package `dmdsim`),
   `requirements.txt` (pinned, CPU-only torch), `.gitignore`.
 - Installed flowTorch editable from the local repository `../flowtorch` with
@@ -16,6 +17,7 @@ modules change.
   exact recovery of a 5 Hz traveling wave). Decision: always feed float64.
 
 ## M1 — core library (2026-10-28)
+
 
 - `signals/generator.py`: `Mode` + `ModalSignal` — synthetic modal line fields
   (traveling waves, offset, seeded noise). Decision: "1D" means a spatial line
@@ -34,6 +36,7 @@ modules change.
 
 ## M2 — GUI v1 (2026-10-28)
 
+
 - `app/figures.py` + `app/main.py`: Bokeh application with signal panel (3 mode
   editors κ/f/A/σ, grid, offset, noise), DMD panel (rank with automatic option,
   auto-rerun toggle, Run button), eigenvalue plane, spectrum, mode shape viewer
@@ -49,6 +52,7 @@ modules change.
 
 ## M2.1 — server shutdown on browser close (2026-10-28)
 
+
 - Requirement: the app server must stop when the browser is closed.
 - Investigation with an instrumented server: Bokeh 3.10.1's session cleanup job
   never fires under manual io loop management — Tornado 6.6 binds
@@ -63,6 +67,7 @@ modules change.
 
 ## M2.2 — sidebar layout and internal documentation (2026-10-28)
 
+
 - GUI restructure: the crowded single-page layout became a `Tabs` widget with
   `tabs_location="left"` — a left sidebar with one submenu per step: "① Signal"
   (generators + fit controls + status), "② Eigenvalues", "③ Spectrum",
@@ -76,6 +81,7 @@ modules change.
 
 ## M2.3 — signal preview and cleaner menus (2026-10-28)
 
+
 - User feedback: the created signal was not visible in the setup panel, and the
   menu naming was confusing.
 - Panels renamed to what they show: "Setup", "Eigenvalues", "Spectrum",
@@ -88,6 +94,7 @@ modules change.
   noise, DMD fit, Signal preview.
 
 ## M2.4 — modern styling with per-step accent colors (2026-10-28)
+
 
 - User feedback: the GUI should look more modern and the panels should be
   visually distinguishable through color.
@@ -104,6 +111,7 @@ modules change.
 
 ## M2.5 — vision-based GUI polish (2026-10-28)
 
+
 - Method: headless screenshots of all five tabs (Playwright in a throwaway venv,
   scripts untracked in `run/`) reviewed with a vision model, two review rounds.
 - Round 1 findings: Setup tab was a "wall of controls" (blocking), tab labels too
@@ -118,6 +126,7 @@ modules change.
   names OpenCode and ScaDS.AI with links.
 
 ## M2.6 — start menu, nested mode submenus, sidebar alignment (2026-10-28)
+
 
 - User feedback: the sidebar was not aligned, a start menu was missing (create
   signal, animate it, run DMD), and the mode quantities should live in their own
@@ -142,18 +151,8 @@ modules change.
 - Verified with a third vision review round: sidebar aligned, start menu reads
   create → animate → run, nested sub-tabs clean; verdict "acceptable to show".
 
-## M2.10 — status update, GUI revise phase declared (2026-10-28)
-
-- PLAN.md, README.md and `documentation/architecture.md` updated to the current
-  phase: the **GUI revise phase** is ongoing (M2.1–M2.9, panel-by-panel feedback
-  rounds with vision-based screenshot reviews); the milestones table gained an
-  M2R row whose completion criterion is the user declaring the revision
-  complete.
-- Commit policy in effect: the whole revision sits uncommitted in the working
-  tree; a single commit is made when the user says the revision is complete.
-  M3 (interactive eigenvalue editing) starts afterwards.
-
 ## M2.7 — Signal panel rework and panel-by-panel pass (2026-10-28)
+
 
 - User feedback (panel-by-panel round, starting with "1 · Signal"): the 1D signal
   should animate as a 1D line (not a heatmap); the manual mode editors assume
@@ -181,6 +180,7 @@ modules change.
 
 ## M2.8 — unit window, internal grid, percent noise (2026-10-28)
 
+
 - User feedback: typed number entry should work; dx/n_space need no user
   exposure; the animation should show y(x) over a fixed window x ∈ [0, 1]
   animated in time; noise should be a single percent box.
@@ -198,7 +198,44 @@ modules change.
 - Commit policy: the user declares when a GUI revision is complete; only then is
   a single commit made (the M2.7 commit was reset accordingly).
 
+## M2.9 — tooltips with bounds, clamped typing, section split (2026-10-28)
+
+
+- User feedback: the ? tooltips showed nothing; Enter seemed to fail in the modal
+  composition part; Time and Noise should be separate sections; the offset needed
+  an explanation.
+- Root causes found by reading the bokeh 3.10 bundle and browser-level testing:
+  (1) a plain string `description` only sets the native `title` attribute — the
+  interactive popover requires a `bokeh.models.Tooltip` instance (now used, with
+  parameter meaning AND allowed range, auto-derived from the widget bounds via
+  the `_spinner` helper); (2) bokeh's `Spinner.bound_value` silently DISCARDS
+  typed values outside the declared bounds (returns the old value instead of
+  clamping) — typing 99 into n_modes commits nothing; typing an unchanged value
+  also commits nothing. Both documented as bokeh limitations; the tooltips now
+  show the bounds so the discard is explainable, and the f_min/f_max relation
+  clamp works server-side (those values do reach the server).
+- Decimal commas ("2,5") are rejected by bokeh's input filter (keystrokes are
+  reverted, "2,5" becomes "25") — noted as a limitation; type decimal points.
+- "Time" (dt, n time) and "Noise" (noise [%]) are separate sections with hints.
+- Verified in Firefox AND Chromium headless: hover flips the tooltip model to
+  visible and renders the popover (screenshot `run/screenshots/tab0_tooltip.png`,
+  vision-checked: readable, complete, well positioned); Enter commits on all
+  seven spinners for in-bounds values.
+
+## M2.10 — status update, GUI revise phase declared (2026-10-28)
+
+
+- PLAN.md, README.md and `documentation/architecture.md` updated to the current
+  phase: the **GUI revise phase** is ongoing (M2.1–M2.9, panel-by-panel feedback
+  rounds with vision-based screenshot reviews); the milestones table gained an
+  M2R row whose completion criterion is the user declaring the revision
+  complete.
+- Commit policy in effect: the whole revision sits uncommitted in the working
+  tree; a single commit is made when the user says the revision is complete.
+  M3 (interactive eigenvalue editing) starts afterwards.
+
 ## M2.11 — wider bounds, hint removal, math labels (2026-10-28)
+
 
 - User feedback: the n_modes/frequency limits were arbitrary and too tight; the
   hint texts are redundant now that the ? tooltips work; parameters should render
@@ -220,6 +257,7 @@ modules change.
 
 ## M2.12 — Signal panel cosmetic fixes (2026-10-28)
 
+
 - User feedback: the rank info should belong to the DMD boxes, the DMD fit
   controls felt randomly distributed, n_modes was not rendered mathematically,
   and the time sliders should show t in seconds.
@@ -234,7 +272,27 @@ modules change.
   advance and the two-way slider sync round to the frame grid (no float drift).
 - Vision review round 10: "complete and production-ready", no must-fix items.
 
+## M2.13 — DMD fit group fine-tuning (2026-10-28)
+
+
+- User feedback: auto-rerun and Run DMD belong below the rank box; the info box
+  belongs below the Run DMD button and should only show the rank (when
+  automatic) and the error.
+- The DMD fit section is now vertical: rank → row(auto-rerun, Run DMD) → info
+  box, all inside the left controls column; the top status bar is gone.
+- Info box content minimized per request: "rank automatic (N) · round-trip
+  error" when automatic (N = fitted mode count, i.e. the resolved rank; optimal
+  truncation count with noise), otherwise only "round-trip error". Fit failures
+  still appear in red in the same box.
+- Auto-rerun ? tooltip: bokeh's Toggle/Button/CheckboxGroup have no `description`
+  property (only InputWidgets do), and a standalone Tooltip cannot anchor across
+  view trees (target resolution falls back to the page body). Auto-rerun is
+  therefore a compact `Select` (on/off) with the native ? popover explaining the
+  behavior; semantics unchanged (on = refit on any change, off = stale marker +
+  manual Run DMD).
+
 ## M2.14 — eigenvalue dynamics subplot (2026-10-28)
+
 
 - User request: an animation subplot for the eigenvalues to emphasize their
   influence (especially once dragging works in M3).
@@ -261,6 +319,7 @@ modules change.
 
 ## M2.15 — panel 2 completed, panel 3 (Spectrum) revised (2026-10-28)
 
+
 - User feedback: the mode sliders should be called "eigenvalue number"; panel 2
   revision declared complete; panel 3 revision next.
 - Both mode sliders renamed to "eigenvalue number" (they pick an eigenvalue of
@@ -274,7 +333,25 @@ modules change.
   eigenvalue selection changes).
 - Vision review round 13: "major success", no must-fix items.
 
+## M2.15b — panel 2 follow-up: selection highlight, trail origin, pair colors (2026-10-28)
+
+- Round 14/16 follow-ups on panel 2: eigenvalue markers in all complex-plane
+  plots and the spectrum carry **pair colors** — each conjugate pair shares one
+  categorical color (PAIR_PALETTE in `app/styling.py`, assigned via
+  `DMDResult.pairs` in `_pair_colors()`), unpaired real eigenvalues are gray;
+  the λᵗ trail carries the selected pair's color (set via the trail renderer's
+  glyph — `Line.line_color` accepts no field names). Stability remains encoded
+  by position (radius vs. unit circle) and the hover readouts. The λᵗ trail now
+  starts at the selected eigenvalue (λ¹, previously the misleading λ⁰ = 1
+  identity point). Vision rounds 14 (caught red/green inconsistency + the
+  trail-origin bug) and 16 confirm: "the color scheme is perfectly implemented".
+- Operational lesson: a stale debug server on the screenshot port served old
+  code (vision round 15 flagged colors that were never in the new build); always
+  verify the served process before reviewing captures — the debug server now
+  runs on its own port 5099 and stray processes are killed before captures.
+
 ## M2.16 — panel 4 revision: phase wrapping + traveling-wave direction view (2026-10-28)
+
 
 - User feedback: the propagation-direction panel was "weird" and the discontinuous
   (wrapped) phase is hard to understand.
@@ -297,6 +374,7 @@ modules change.
 - Vision review round 17: "a complete success… no must-fix items remain."
 
 ## M2.17 — panel 5 revision: pair-colored contributions (2026-10-28)
+
 
 - User request: update the Reconstruction panel with the design language
   established in the previous panel revisions.
@@ -326,58 +404,48 @@ modules change.
   accumulated changes are committed as a single commit. Next milestone: M3 —
   interactive eigenvalue editing (dragging), for which the λᵗ dynamics subplot
   and the reconstruction contribution lines are the live-feedback surfaces.
-- Round 14/16 follow-ups on panel 2: eigenvalue markers in all complex-plane
-  plots and the spectrum carry **pair colors** — each conjugate pair shares one
-  categorical color (PAIR_PALETTE in `app/styling.py`, assigned via
-  `DMDResult.pairs` in `_pair_colors()`), unpaired real eigenvalues are gray;
-  the λᵗ trail carries the selected pair's color (set via the trail renderer's
-  glyph — `Line.line_color` accepts no field names). Stability remains encoded
-  by position (radius vs. unit circle) and the hover readouts. The λᵗ trail now
-  starts at the selected eigenvalue (λ¹, previously the misleading λ⁰ = 1
-  identity point). Vision rounds 14 (caught red/green inconsistency + the
-  trail-origin bug) and 16 confirm: "the color scheme is perfectly implemented".
-- Operational lesson: a stale debug server on the screenshot port served old
-  code (vision round 15 flagged colors that were never in the new build); always
-  verify the served process before reviewing captures — the debug server now
-  runs on its own port 5099 and stray processes are killed before captures.
 
-## M2.13 — DMD fit group fine-tuning (2026-10-28)
+## M3 — interactive eigenvalue editing (2026-10-28)
 
-- User feedback: auto-rerun and Run DMD belong below the rank box; the info box
-  belongs below the Run DMD button and should only show the rank (when
-  automatic) and the error.
-- The DMD fit section is now vertical: rank → row(auto-rerun, Run DMD) → info
-  box, all inside the left controls column; the top status bar is gone.
-- Info box content minimized per request: "rank automatic (N) · round-trip
-  error" when automatic (N = fitted mode count, i.e. the resolved rank; optimal
-  truncation count with noise), otherwise only "round-trip error". Fit failures
-  still appear in red in the same box.
-- Auto-rerun ? tooltip: bokeh's Toggle/Button/CheckboxGroup have no `description`
-  property (only InputWidgets do), and a standalone Tooltip cannot anchor across
-  view trees (target resolution falls back to the page body). Auto-rerun is
-  therefore a compact `Select` (on/off) with the native ? popover explaining the
-  behavior; semantics unchanged (on = refit on any change, off = stale marker +
-  manual Run DMD).
 
-## M2.9 — tooltips with bounds, clamped typing, section split (2026-10-28)
+- **Draggable eigenvalues**: the eigenvalue plane's scatter carries a
+  `PointDrawTool` (`add=False` — drag-only; backspace deletions are undone by
+  restoring the source from the result). The drag callback
+  (`_on_eigenvalue_drag`) fires once per drag gesture: it detects the dragged
+  indices against a cached marker positions copy, writes the new eigenvalues
+  into the result, **mirrors the conjugate partners** (cached pair structure of
+  the current fit), refreshes the plane source (partner mirroring visible),
+  patches the dynamics markers, recomputes the reconstruction via
+  `synthesize`, and updates spectrum, λᵗ spiral, direction view, readout, and
+  the status box (now reporting the max deviation from the original signal
+  after edits).
+- **Amplitude scaling**: a "|b| scale (selected)" spinner in panel 2 scales the
+  selected eigenvalue's amplitude relative to its fitted value (baseline
+  cached per fit; the conjugate partner is scaled and re-conjugated
+  accordingly); the spinner follows the selection via the synced mode sliders.
+- Semantics: edits apply to the CURRENT fit and are observable in the
+  reconstruction (deviation from the original), the λᵗ spiral, and the
+  spectrum; a refit (Run DMD or signal change) restores the fitted values.
+- Verified headlessly (source-patch simulation = the exact server event the
+  drag tool emits): mirroring, plane sync, reconstruction consistency against
+  direct synthesis, spectrum frequency update, 2× amplitude scaling with
+  partner, spinner per-mode sync, refit restore; browser round trip (JS source
+  patch → server → views) with zero JS errors; vision review round 19
+  ("implemented perfectly").
+- Guard fixes during implementation: the plane-source refill in
+  `_update_eigenvalue_markers` is guarded against the drag callback, and the
+  partner-mirroring loop no longer mutates its iteration dict.
+- Round 20 user feedback implemented: (1) **unit-circle lock** ("lock to unit
+  circle" toggle in panel 2) — locked drags are projected onto |λ| = 1 so only
+  the frequency changes, and locked edits are TEMPORARY: selecting a different
+  eigenvalue restores the previously locked-edited one to its fitted value
+  (tracked via `_locked_edit_indices`/`_fit_eigvals`; free drags without the
+  lock persist deliberately). (2) Selecting a different eigenvalue resets the
+  shared time cursor to zero. (3) The amplitude-scale tooltip now explains the
+  semantics concretely (1 = as fitted, 0 = silenced, 2 = twice as strong; the
+  original signal is unaffected). (4) Break-session hardening: typed amplitude
+  scales are clamped and written back to the box (500 → 3, −5 → 0), drags into
+  the origin are clamped to radius 1e-3 (log(0) undefined), constant signals
+  produce a friendly "needs variation" message instead of the cryptic
+  torch.linalg NaN error; drag-to-origin with and without the lock verified.
 
-- User feedback: the ? tooltips showed nothing; Enter seemed to fail in the modal
-  composition part; Time and Noise should be separate sections; the offset needed
-  an explanation.
-- Root causes found by reading the bokeh 3.10 bundle and browser-level testing:
-  (1) a plain string `description` only sets the native `title` attribute — the
-  interactive popover requires a `bokeh.models.Tooltip` instance (now used, with
-  parameter meaning AND allowed range, auto-derived from the widget bounds via
-  the `_spinner` helper); (2) bokeh's `Spinner.bound_value` silently DISCARDS
-  typed values outside the declared bounds (returns the old value instead of
-  clamping) — typing 99 into n_modes commits nothing; typing an unchanged value
-  also commits nothing. Both documented as bokeh limitations; the tooltips now
-  show the bounds so the discard is explainable, and the f_min/f_max relation
-  clamp works server-side (those values do reach the server).
-- Decimal commas ("2,5") are rejected by bokeh's input filter (keystrokes are
-  reverted, "2,5" becomes "25") — noted as a limitation; type decimal points.
-- "Time" (dt, n time) and "Noise" (noise [%]) are separate sections with hints.
-- Verified in Firefox AND Chromium headless: hover flips the tooltip model to
-  visible and renders the popover (screenshot `run/screenshots/tab0_tooltip.png`,
-  vision-checked: readable, complete, well positioned); Enter commits on all
-  seven spinners for in-bounds values.

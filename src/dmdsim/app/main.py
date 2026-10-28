@@ -48,7 +48,12 @@ _MODE_DEFAULTS: list[tuple[float, float, float, float, bool]] = [
 
 _HINT_EIGENVALUES = ("Radius |λ| encodes growth/decay: outside the unit circle the mode "
                      "grows, inside it decays. The angle encodes the frequency "
-                     "f = arg(λ) / (2π·dt).")
+                     "f = arg(λ) / (2π·dt). Drag an eigenvalue to edit it — its "
+                     "conjugate partner mirrors automatically and the reconstruction, "
+                     "spectrum, and spiral update live. With 'lock to unit circle' "
+                     "active, dragged eigenvalues stay neutral (|λ| = 1) and only "
+                     "their frequency changes. A refit (Run DMD or a signal change) "
+                     "restores the fitted values.")
 _HINT_DYNAMICS = ("Powers λᵗ of the selected mode in the complex plane, animated with "
                   "the global time cursor: the trail spirals inward (decay), outward "
                   "(growth) or orbits on a circle (neutral); the rotation speed is the "
@@ -139,6 +144,13 @@ class DMDPlayground:
         self._syncing_time = False
         self._syncing_play = False
         self._syncing_mode = False
+        self._syncing_drag = False
+        self._syncing_amplitude = False
+        self._cached_pairs: list[tuple[int, int]] = []
+        self._fit_amplitudes: np.ndarray | None = None
+        self._fit_eigvals: np.ndarray | None = None
+        self._locked_edit_indices: set[int] = set()
+        self._drag_cache: tuple[np.ndarray, np.ndarray] = (np.array([]), np.array([]))
         self._build_widgets()
         self._build_figures()
         self._build_layout()
@@ -228,6 +240,16 @@ class DMDPlayground:
         self._eigen_time_slider = Slider(title="t [s]", start=0, end=2.99, value=0,
                                          step=0.01, width=300)
         self._eigen_play_toggle = Toggle(label="▶ play", active=False, width=100)
+        self._amplitude_spinner = Spinner(title="|b| scale (selected)", value=1.0,
+                                          low=0.0, high=3.0, step=0.01, width=160,
+                                          description="scales the contribution of the "
+                                                      "selected eigenvalue (and its "
+                                                      "conjugate partner) to the "
+                                                      "reconstruction: 1 = as fitted, "
+                                                      "0 = silenced, 2 = twice as "
+                                                      "strong; the original signal is "
+                                                      "not affected")
+        self._lock_toggle = Toggle(label="lock to unit circle", active=False, width=160)
         # a little extra air below the play/slider row improves the grouping
         self._mode_select.styles = {"margin-top": "10px"}
         self._readout_div = info_box()
@@ -309,6 +331,7 @@ class DMDPlayground:
         signal_panel = row(controls, animation, spacing=14)
         eigen_panel = column(
             row(self._dynamics_mode_slider, self._sort_select),
+            row(self._amplitude_spinner, self._lock_toggle),
             row(self._eigenvalue_figure, self._dynamics_figure),
             row(self._eigen_time_slider, self._eigen_play_toggle),
             row(hint(_HINT_EIGENVALUES, width=620), hint(_HINT_DYNAMICS, width=620)),
@@ -365,6 +388,8 @@ class DMDPlayground:
         for widget in parameter_widgets:
             attribute = "active" if isinstance(widget, Toggle) else "value"
             widget.on_change(attribute, partial(self._on_parameter_change, widget=widget))
+        self._eigenvalue_source.on_change("data", self._on_eigenvalue_drag)
+        self._amplitude_spinner.on_change("value", self._on_amplitude_change)
         self._run_button.on_click(self._run_dmd)
         self._auto_toggle.on_change("value", self._on_auto_toggle)
         # keep the frequency bounds mutually consistent
@@ -426,6 +451,9 @@ class DMDPlayground:
         """
         try:
             signal = self._build_signal()
+            if float(np.ptp(signal.samples)) == 0.0:
+                raise ValueError("the signal is constant — the DMD needs temporal or "
+                                 "spatial variation (add modes, offset, or noise)")
             rank = self._rank_spinner.value
             if rank == 0:
                 # automatic: exact rank of the clean composition; optimal
@@ -495,7 +523,9 @@ class DMDPlayground:
 
     def _update_quantities(self) -> None:
         """
-        Update the eigenvalue plane, the spectrum, and their axis ranges.
+        Update the eigenvalue plane, the spectrum, and their axis ranges, and
+        refresh the cached editing state (pairs, fitted amplitudes, marker
+        positions) for the eigenvalue editing.
 
         :return: None
         :rtype: None
@@ -503,15 +533,25 @@ class DMDPlayground:
         result = self._result
         if result is None or result.n_modes == 0:
             self._eigenvalue_source.data = dict(re=[], im=[], index=[], frequency=[],
-                                                growth=[])
+                                                growth=[], color=[], size=[])
             self._spectrum_source.data = dict(frequency=[], amplitude=[], index=[],
-                                              growth=[])
+                                              growth=[], color=[], width=[], size=[])
+            self._cached_pairs = []
+            self._fit_amplitudes = None
+            self._drag_cache = (np.array([]), np.array([]))
             return
         self._update_eigenvalue_markers()
-        self._spectrum_source.data = dict(frequency=result.frequencies,
-                                          amplitude=np.abs(result.amplitudes),
-                                          index=list(range(result.n_modes)),
-                                          growth=result.growth_rates)
+        # cache the fitted baseline (eigenvalues, amplitudes), the pair structure,
+        # and marker positions for the eigenvalue editing (dragging, amplitude
+        # scaling, and the unit-circle lock reset)
+        self._cached_pairs = result.pairs
+        self._fit_amplitudes = result.amplitudes.copy()
+        self._fit_eigvals = result.eigvals.copy()
+        self._locked_edit_indices = set()
+        self._drag_cache = (result.eigvals.real.copy(), result.eigvals.imag.copy())
+        self._syncing_amplitude = True
+        self._amplitude_spinner.value = 1.0
+        self._syncing_amplitude = False
         # keep the eigenvalue plane centered on the unit circle with margin
         radius = max(1.2, float(np.abs(result.eigvals).max()) * 1.1)
         self._eigenvalue_figure.x_range.start = -radius
@@ -550,9 +590,10 @@ class DMDPlayground:
         """
         Fill the eigenvalue markers of both complex-plane plots.
 
-        Markers are colored by stability (red growing, blue decaying, gray
-        neutral) and the selected eigenvalue is drawn larger in both the
-        eigenvalue plane and the mode dynamics view.
+        Markers are colored by pair (each conjugate pair shares one categorical
+        color) and the selected eigenvalue is drawn larger in both the
+        eigenvalue plane and the mode dynamics view. The plane source carries
+        the drag tool, so its refill is guarded against the drag callback.
 
         :return: None
         :rtype: None
@@ -567,12 +608,16 @@ class DMDPlayground:
         index = min(int(self._mode_slider.value), result.n_modes - 1)
         colors = self._pair_colors()
         sizes = [14 if i == index else 8 for i in range(result.n_modes)]
+        # the plane source drives the drag tool: guard its refill against the
+        # drag callback (fired by this very assignment)
+        self._syncing_drag = True
         self._eigenvalue_source.data = dict(re=result.eigvals.real,
                                             im=result.eigvals.imag,
                                             index=list(range(result.n_modes)),
                                             frequency=result.frequencies,
                                             growth=result.growth_rates,
                                             color=colors, size=sizes)
+        self._syncing_drag = False
         self._dynamics_all_source.data = dict(x=result.eigvals.real,
                                               y=result.eigvals.imag,
                                               index=list(range(result.n_modes)),
@@ -838,6 +883,144 @@ class DMDPlayground:
             f"arg(b) = {np.angle(amplitude):.3f} rad"
         )
 
+    def _on_eigenvalue_drag(self, attr: str, old: object, new: object) -> None:
+        """
+        Apply dragged eigenvalues with conjugate mirroring and live feedback.
+
+        The drag tool commits the edited positions once per drag gesture. The
+        dragged eigenvalues are written into the result, their conjugate
+        partners are mirrored, and the reconstruction, spectrum, and dynamics
+        views are updated so the effects are immediately observable. A deletion
+        via the backspace key is undone by restoring the source.
+
+        :param attr: name of the changed source attribute
+        :type attr: str
+        :param old: previous source data
+        :type old: object
+        :param new: new source data
+        :type new: object
+        :return: None
+        :rtype: None
+        """
+        if self._syncing_drag or self._result is None or self._signal is None:
+            return
+        re = np.asarray(new["re"], dtype=np.float64)
+        im = np.asarray(new["im"], dtype=np.float64)
+        if len(re) != self._result.n_modes:
+            # a point was deleted via backspace: restore the fitted eigenvalues
+            self._syncing_drag = True
+            self._update_eigenvalue_markers()
+            self._syncing_drag = False
+            return
+        old_re, old_im = self._drag_cache
+        dragged = np.where((np.abs(re - old_re) > 1e-12)
+                           | (np.abs(im - old_im) > 1e-12))[0]
+        self._drag_cache = (re.copy(), im.copy())
+        if len(dragged) == 0:
+            return
+        self._syncing_drag = True
+        # write the dragged eigenvalues and mirror their conjugate partners;
+        # a unit-circle lock projects them onto |lambda| = 1 and a drag into the
+        # origin is clamped to a small radius (log(0) would be undefined)
+        edited = {}
+        for i in dragged:
+            old_lam = complex(self._result.eigvals[i])
+            lam = complex(re[i], im[i])
+            radius = abs(lam)
+            if self._lock_toggle.active:
+                if radius > 1e-12:
+                    lam = lam / radius
+                elif abs(old_lam) > 1e-12:
+                    lam = old_lam / abs(old_lam)
+                else:
+                    lam = complex(1.0, 0.0)
+                # locked drags are temporary experiments: the eigenvalue is
+                # restored to its fitted value when another one is selected
+                self._locked_edit_indices.add(i)
+            elif radius < 1e-3:
+                angle = np.angle(lam) if radius > 1e-12 else np.angle(old_lam)
+                lam = 1e-3 * np.exp(1j * angle)
+            self._result.eigvals[i] = lam
+            edited[i] = lam
+        for i in dragged:
+            for a, b in self._cached_pairs:
+                if a == i and b not in edited:
+                    edited[b] = np.conj(edited[i])
+                elif b == i and a not in edited:
+                    edited[a] = np.conj(edited[i])
+        for i, lam in edited.items():
+            self._result.eigvals[i] = lam
+            re[i] = lam.real
+            im[i] = lam.imag
+        # refresh the plane source (partner mirroring) and the dynamics markers
+        updated = dict(new)
+        updated["re"] = re
+        updated["im"] = im
+        updated["frequency"] = self._result.frequencies
+        updated["growth"] = self._result.growth_rates
+        self._eigenvalue_source.data = updated
+        markers = self._dynamics_all_source.data
+        x = np.asarray(markers["x"], dtype=np.float64).copy()
+        y = np.asarray(markers["y"], dtype=np.float64).copy()
+        for i, lam in edited.items():
+            x[i] = lam.real
+            y[i] = lam.imag
+        updated = dict(markers)
+        updated["x"] = x
+        updated["y"] = y
+        self._dynamics_all_source.data = updated
+        self._syncing_drag = False
+        # feed the edited eigenvalues back into the reconstruction and all views
+        self._reconstruction = synthesize(self._result.modes, self._result.amplitudes,
+                                          self._result.eigvals, self._signal.dt,
+                                          self._signal.n_time)
+        error = float(np.abs(self._reconstruction - self._signal.samples).max())
+        self._status_div.text = f"edited — max deviation from the original: {error:.1e}"
+        self._update_spectrum()
+        self._update_time_view()
+
+    def _on_amplitude_change(self, attr: str, old: object, new: object) -> None:
+        """
+        Scale the amplitude of the selected eigenvalue and mirror its partner.
+
+        The scale factor is applied relative to the fitted amplitude so the
+        slider position corresponds to the current scaling; the reconstruction
+        and all views are updated live.
+
+        :param attr: name of the changed widget attribute
+        :type attr: str
+        :param old: previous attribute value
+        :type old: object
+        :param new: new attribute value (the scale factor)
+        :type new: object
+        :return: None
+        :rtype: None
+        """
+        if self._syncing_amplitude or self._result is None or self._signal is None \
+                or self._fit_amplitudes is None:
+            return
+        index = min(int(self._mode_slider.value), self._result.n_modes - 1)
+        # typed values are not clamped by the widget: enforce the declared bounds
+        scale = min(max(float(new), 0.0), 3.0)
+        if scale != float(new):
+            self._syncing_amplitude = True
+            self._amplitude_spinner.value = scale
+            self._syncing_amplitude = False
+        self._result.amplitudes[index] = self._fit_amplitudes[index] * scale
+        # mirror the conjugate partner (conjugated amplitude, same scale)
+        for a, b in self._cached_pairs:
+            if a == index:
+                self._result.amplitudes[b] = np.conj(self._result.amplitudes[index])
+            elif b == index:
+                self._result.amplitudes[a] = np.conj(self._result.amplitudes[index])
+        self._reconstruction = synthesize(self._result.modes, self._result.amplitudes,
+                                          self._result.eigvals, self._signal.dt,
+                                          self._signal.n_time)
+        error = float(np.abs(self._reconstruction - self._signal.samples).max())
+        self._status_div.text = f"edited — max deviation from the original: {error:.1e}"
+        self._update_spectrum()
+        self._update_time_view()
+
     def _on_sort_change(self, attr: str, old: object, new: object) -> None:
         """
         Re-sort the current DMD result and refresh all mode-dependent views.
@@ -967,10 +1150,32 @@ class DMDPlayground:
             if slider.value != new:
                 slider.value = new
         self._syncing_mode = False
+        # locked drags are temporary: restore the previously selected eigenvalue
+        # to its fitted state when a different one is selected
+        if self._fit_eigvals is not None and self._locked_edit_indices:
+            for i in self._locked_edit_indices:
+                if i < self._result.n_modes:
+                    self._result.eigvals[i] = self._fit_eigvals[i]
+            self._locked_edit_indices = set()
+            self._reconstruction = synthesize(self._result.modes, self._result.amplitudes,
+                                              self._result.eigvals, self._signal.dt,
+                                              self._signal.n_time)
         self._update_mode_view()
         self._update_eigenvalue_markers()
         self._update_spectrum()
-        self._update_time_view()
+        # selecting a different eigenvalue restarts the shared time cursor
+        self._time_slider.value = 0.0
+        # the amplitude spinner follows the scale of the newly selected eigenvalue
+        index = min(int(self._mode_slider.value), self._result.n_modes - 1) \
+            if self._result is not None and self._result.n_modes > 0 else 0
+        if self._fit_amplitudes is not None and index < len(self._fit_amplitudes) \
+                and abs(self._fit_amplitudes[index]) > 0.0:
+            scale = abs(self._result.amplitudes[index]) / abs(self._fit_amplitudes[index])
+        else:
+            scale = 1.0
+        self._syncing_amplitude = True
+        self._amplitude_spinner.value = scale
+        self._syncing_amplitude = False
 
     def _on_view_change(self, attr: str, old: object, new: object) -> None:
         """

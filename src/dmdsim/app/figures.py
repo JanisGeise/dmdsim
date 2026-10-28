@@ -4,7 +4,8 @@
 import numpy as np
 
 from bokeh.plotting import figure
-from bokeh.models import Span, Arrow, Range1d, HoverTool, NormalHead, GlyphRenderer, ColumnDataSource
+from bokeh.models import (Span, Arrow, Range1d, HoverTool, NormalHead, GlyphRenderer,
+                          PointDrawTool, ColumnDataSource)
 
 
 def create_eigenvalue_figure() -> tuple[figure, ColumnDataSource]:
@@ -22,8 +23,12 @@ def create_eigenvalue_figure() -> tuple[figure, ColumnDataSource]:
              line_width=1)
     source = ColumnDataSource(dict(re=[], im=[], index=[], frequency=[], growth=[],
                                    color=[], size=[]))
-    fig.scatter(x="re", y="im", source=source, size="size", color="color",
-                line_color="white")
+    eigen_renderer = fig.scatter(x="re", y="im", source=source, size="size",
+                                 color="color", line_color="white")
+    # eigenvalues are edited by dragging only: adding points is disabled, and the
+    # application restores the source if a point is deleted via backspace
+    fig.add_tools(PointDrawTool(renderers=[eigen_renderer], add=False, drag=True,
+                                empty_value=0.0))
     fig.add_tools(HoverTool(tooltips=[
         ("mode", "@index"),
         ("lambda", "(@re{0.000}, @im{0.000})"),
