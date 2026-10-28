@@ -50,6 +50,8 @@ _HINT_MODE = ("Complex spatial shape φ(s): Re and Im form the wave profile, |φ
 _HINT_TIME = ("The cursor in the heatmap marks the current time of the curves on the "
               "right. The reconstruction is Σ φᵢ·bᵢ·λᵢᵗ; compare it against the "
               "original field.")
+_HINT_PREVIEW = ("Preview of the current synthetic signal x(s, t); it updates with "
+                 "every DMD fit.")
 
 
 class DMDPlayground:
@@ -142,6 +144,8 @@ class DMDPlayground:
         self._mode_figure, self._mode_source = create_mode_figure()
         (self._heatmap_figure, self._heatmap_source, self._color_mapper,
          self._time_span) = create_field_heatmap()
+        (self._preview_figure, self._preview_source, self._preview_mapper,
+         _) = create_field_heatmap(show_cursor=False, title="signal preview x(s, t)")
         self._time_figure, self._time_source = create_time_curves_figure()
 
     def _build_layout(self) -> None:
@@ -158,16 +162,19 @@ class DMDPlayground:
         mode_rows = [row(self._mode_toggles[i], self._wavenumber_spinners[i],
                          self._frequency_spinners[i], self._amplitude_spinners[i],
                          self._growth_spinners[i]) for i in range(_MAX_MODE_EDITORS)]
-        signal_panel = column(
-            Div(text="<b>Signal generator</b>"),
+        setup_panel = column(
+            Div(text="<b>Modal components</b>"),
             *mode_rows,
-            Div(text="<b>Grid, offset, and noise</b>"),
+            Div(text="<b>Grid &amp; noise</b>"),
             row(self._dt_spinner, self._dx_spinner, self._n_space_spinner,
                 self._n_time_spinner),
             row(self._offset_spinner, self._noise_toggle, self._noise_spinner),
             Div(text="<b>DMD fit</b>"),
             row(self._rank_spinner, self._auto_toggle, self._run_button),
             self._status_div,
+            Div(text="<b>Signal preview</b>"),
+            self._preview_figure,
+            Div(text=_HINT_PREVIEW, width=500),
             width=1000,
         )
         eigen_panel = column(self._eigenvalue_figure, Div(text=_HINT_EIGENVALUES, width=620))
@@ -181,11 +188,11 @@ class DMDPlayground:
             row(Div(text=_HINT_TIME, width=500), self._readout_div),
         )
         tabs = Tabs(tabs=[
-            TabPanel(child=signal_panel, title="① Signal"),
-            TabPanel(child=eigen_panel, title="② Eigenvalues"),
-            TabPanel(child=spectrum_panel, title="③ Spectrum"),
-            TabPanel(child=mode_panel, title="④ Mode shape"),
-            TabPanel(child=time_panel, title="⑤ Time view"),
+            TabPanel(child=setup_panel, title="Setup"),
+            TabPanel(child=eigen_panel, title="Eigenvalues"),
+            TabPanel(child=spectrum_panel, title="Spectrum"),
+            TabPanel(child=mode_panel, title="Mode shapes"),
+            TabPanel(child=time_panel, title="Reconstruction"),
         ], tabs_location="left")
         self._doc.add_root(tabs)
 
@@ -279,20 +286,26 @@ class DMDPlayground:
 
     def _update_field_view(self) -> None:
         """
-        Update the space-time heatmap, its color range, and the time slider bounds.
+        Update the signal preview, the space-time heatmap, the color ranges, and
+        the time slider bounds.
 
         :return: None
         :rtype: None
         """
         signal = self._signal
-        self._heatmap_source.data = dict(image=[signal.samples], x=[0.0], y=[0.0],
-                                         dw=[(signal.n_time - 1) * signal.dt],
-                                         dh=[(signal.n_space - 1) * signal.dx])
+        image_data = dict(image=[signal.samples], x=[0.0], y=[0.0],
+                          dw=[(signal.n_time - 1) * signal.dt],
+                          dh=[(signal.n_space - 1) * signal.dx])
+        self._heatmap_source.data = image_data
+        self._preview_source.data = image_data
         self._heatmap_figure.x_range.end = (signal.n_time - 1) * signal.dt
         self._heatmap_figure.y_range.end = (signal.n_space - 1) * signal.dx
+        self._preview_figure.x_range.end = (signal.n_time - 1) * signal.dt
+        self._preview_figure.y_range.end = (signal.n_space - 1) * signal.dx
         vmax = max(float(np.abs(signal.samples).max()), 1e-12)
-        self._color_mapper.low = -vmax
-        self._color_mapper.high = vmax
+        for mapper in (self._color_mapper, self._preview_mapper):
+            mapper.low = -vmax
+            mapper.high = vmax
 
     def _update_quantities(self) -> None:
         """

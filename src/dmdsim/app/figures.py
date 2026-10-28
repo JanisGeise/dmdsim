@@ -87,24 +87,34 @@ def create_mode_figure() -> tuple[figure, ColumnDataSource]:
     return fig, source
 
 
-def create_field_heatmap() -> tuple[figure, ColumnDataSource, LinearColorMapper, Span]:
+def create_field_heatmap(show_cursor: bool = True,
+                         title: str = "field x(s, t)") -> tuple[figure, ColumnDataSource,
+                                                                LinearColorMapper, Span | None]:
     """
-    Create the space-time heatmap of the field with the current-time cursor.
+    Create the space-time heatmap of the field with an optional current-time cursor.
 
+    :param show_cursor: draw the dashed time cursor span into the figure; disable
+        for static previews of the signal, defaults to True
+    :type show_cursor: bool
+    :param title: figure title, defaults to ``"field x(s, t)"``
+    :type title: str
     :return: figure, the image data source (columns ``image``, ``x``, ``y``, ``dw``,
-        and ``dh``), the shared color mapper, and the time cursor span
-    :rtype: tuple[figure, ColumnDataSource, LinearColorMapper, Span]
+        and ``dh``), the shared color mapper, and the time cursor span (``None``
+        without cursor)
+    :rtype: tuple[figure, ColumnDataSource, LinearColorMapper, Span | None]
     """
     mapper = LinearColorMapper(palette=RdBu[11], low=-1.0, high=1.0)
-    fig = figure(width=500, height=380, title="field x(s, t)", x_range=(0.0, 1.0),
+    fig = figure(width=500, height=380, title=title, x_range=(0.0, 1.0),
                  y_range=(0.0, 1.0))
     source = ColumnDataSource(dict(image=[], x=[], y=[], dw=[], dh=[]))
     fig.image(image="image", x="x", y="y", dw="dw", dh="dh", source=source,
               color_mapper=mapper)
     fig.add_layout(ColorBar(color_mapper=mapper), "right")
-    span = Span(dimension="height", location=0.0, line_color="black", line_width=2,
-                line_dash="dashed")
-    fig.add_layout(span)
+    span = None
+    if show_cursor:
+        span = Span(dimension="height", location=0.0, line_color="black", line_width=2,
+                    line_dash="dashed")
+        fig.add_layout(span)
     fig.xaxis.axis_label = "t [s]"
     fig.yaxis.axis_label = "s"
     return fig, source, mapper, span

@@ -49,8 +49,10 @@ Nothing in the core knows about Bokeh; nothing in `app` implements math.
    only — **no refit**. The reconstruction is sliced from the cached field.
 
 The layout is a `Tabs` widget with `tabs_location="left"`; each step
-(Signal, Eigenvalues, Spectrum, Mode shape, Time view) is one `TabPanel`. All
-panels stay alive while hidden, so widget state survives tab switching.
+(Setup, Eigenvalues, Spectrum, Mode shapes, Reconstruction) is one `TabPanel`. All
+panels stay alive while hidden, so widget state survives tab switching. The Setup
+panel ends with a live signal preview (same heatmap data as the time view, but
+without the time cursor).
 
 ## The playground math
 

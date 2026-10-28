@@ -67,9 +67,10 @@ the figure plus the data source (and extras where needed):
   range is set to ±Nyquist by the app; 620×560.
 - `create_mode_figure()` — Re(φ), Im(φ), |φ| on the left axis and arg(φ) on a
   second right axis (`extra_y_ranges`); 1000×280.
-- `create_field_heatmap()` — `image` glyph of `x(s, t)` with shared
-  `LinearColorMapper` (RdBu, symmetric limits) and a `Span` as time cursor;
-  returns `(figure, source, mapper, span)`; 500×380.
+- `create_field_heatmap(show_cursor=True, title="field x(s, t)")` — `image` glyph of
+  `x(s, t)` with shared `LinearColorMapper` (RdBu, symmetric limits) and an
+  optional `Span` as time cursor (`show_cursor=False` for the static signal
+  preview); returns `(figure, source, mapper, span)`; 500×380.
 - `create_time_curves_figure()` — original, reconstruction, Σ selected modes, and
   selected mode at the current time; 500×380.
 
@@ -91,9 +92,9 @@ silences flowTorch's INFO logging at import time.
     noise widgets, rank (0 = automatic), auto-rerun toggle, Run button, status div,
     mode/time sliders, play toggle, mode checkbox group, readout div.
   - `_build_layout`: `Tabs(tabs_location="left")` with one `TabPanel` per step —
-    "① Signal" (generators + fit controls + status), "② Eigenvalues",
-    "③ Spectrum", "④ Mode shape", "⑤ Time view". All panels stay alive while
-    hidden.
+    "Setup" (modal components, grid & noise, DMD fit, status, live signal
+    preview), "Eigenvalues", "Spectrum", "Mode shapes", "Reconstruction". All
+    panels stay alive while hidden.
   - `_attach_callbacks`: parameter widgets → `_on_parameter_change` (refit on
     auto-rerun, otherwise mark stale); Run button → `_run_dmd`; sliders/checkbox →
     `_on_view_change` (view refresh without refit); play toggle → periodic
@@ -103,11 +104,11 @@ silences flowTorch's INFO logging at import time.
     error).
   - `_mode_field(index, t_index)`: real contribution of one mode at one time level
     (`Re{φᵢ·bᵢ·λᵢᵗ}`) used by the time view.
-  - `_update_*` methods: `_update_field_view` (heatmap, color limits, slider
-    bounds), `_update_quantities` (eigenvalues, spectrum, axis ranges), `_update_
-    mode_slider`/`_update_time_slider` (bounds + clamping), `_update_mode_view`,
-    `_update_mode_select` (resets selection before relabeling to avoid stale
-    indices), `_update_time_view`, `_update_readout`.
+  - `_update_*` methods: `_update_field_view` (signal preview + heatmap, color
+    limits, slider bounds), `_update_quantities` (eigenvalues, spectrum, axis
+    ranges), `_update_mode_slider`/`_update_time_slider` (bounds + clamping),
+    `_update_mode_view`, `_update_mode_select` (resets selection before
+    relabeling to avoid stale indices), `_update_time_view`, `_update_readout`.
   - `_on_play_toggle` / `_advance_time`: animation via
     `Document.add_periodic_callback` (the returned token is kept for removal).
 - `modify_doc(doc)` — entry point for `bokeh serve` (script or directory app).

@@ -73,3 +73,16 @@ modules change.
   the living internal documentation, to be updated with every further step.
 - Backlog additions (PLAN.md §8): dark mode (background `#131313`, dark-adapted
   diverging colormap, dimmed axes) and cross-platform support (Windows/macOS).
+
+## M2.3 — signal preview and cleaner menus (2026-10-28)
+
+- User feedback: the created signal was not visible in the setup panel, and the
+  menu naming was confusing.
+- Panels renamed to what they show: "Setup", "Eigenvalues", "Spectrum",
+  "Mode shapes", "Reconstruction" (was "① Signal" ... "⑤ Time view"); circled
+  numbers dropped.
+- New live **signal preview** heatmap in the Setup panel (updates with every
+  refit; `create_field_heatmap` gained `show_cursor` and `title` parameters so
+  the preview reuses the builder without the time cursor).
+- Setup panel reorganized with clear section headers: Modal components, Grid &
+  noise, DMD fit, Signal preview.
