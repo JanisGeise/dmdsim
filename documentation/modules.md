@@ -106,13 +106,29 @@ the figure plus the data source (and extras where needed):
   zeroes it for shapes without phase slope); source columns ``sigma``,
   ``velocity``, ``index``, ``color``, ``size``, ``frequency``, and
   ``direction``; 620×560 (placed beside the amplitude spectrum in panel 3).
-- `create_mode_component_figure(quantity)` — single-quantity mode shape figure;
-  ``quantity`` is one of ``real``, ``imag``, or ``phase``; the phase view renders
-  the unwrapped phase as a line plus the wrapped ±π values as faded points;
-  source columns ``s``, ``value``, and ``unwrapped``; 1000×420.
-- `create_direction_figure()` — traveling-wave view of the selected mode with a
-  direction arrow annotation (bokeh `Arrow` + `NormalHead`); source columns
-  ``s`` and ``value``; returns `(figure, source, arrow)`; 1000×420.
+- `create_quadrature_figure(x_range=None, y_range=None, height=420,
+  width=1000)` — combined quadrature view of the selected mode: solid Re(φ)
+  and Im(φ) lines in one axes (their quarter-wavelength spatial offset is
+  directly visible) plus a faded dotted fitted-Im reference line (source
+  column ``reference``, filled by the app from the fit baseline) so the
+  morph scaling shows against the original; three-column horizontal legend
+  centered OUTSIDE the frame above the plot (`ncols` + `add_layout(...,
+  "above")`); source columns ``s``, ``real``, ``imag``, and ``reference``;
+  the app groups it with the wave view (615×340, shared x-range, constant
+  shared y-ruler).
+- `create_mode_component_figure(quantity, x_range=None, y_range=None,
+  height=420, width=1000)` — single-quantity mode shape figure; currently
+  only used for ``quantity = "phase"`` (unwrapped phase line + wrapped ±π
+  faded points + faded fitted-phase reference line with a "fitted (t = 1)"
+  legend entry); source columns ``s``, ``value``, ``unwrapped``, and
+  ``reference``; 1000×420.
+- `create_direction_figure(x_range=None, height=420, width=1000)` —
+  traveling-wave view of the selected mode with a direction arrow annotation
+  (bokeh `Arrow` + `NormalHead`) and a faded fitted-reference wave line
+  (source column ``reference``); source columns ``s``, ``value``, and
+  ``reference``; returns `(figure, source, arrow)`; the app groups it with
+  the Re/Im subplots (410×340, shared x-range) and sets the arrow position,
+  length (speed-scaled), and the figure's y-range.
 - `create_mode_dynamics_figure()` — complex-plane animation of the selected
   mode's eigenvalue powers λᵗ (t starting at 1, i.e., at the eigenvalue itself):
   dashed unit circle, faded pair-colored markers for all eigenvalues, trail
@@ -190,18 +206,19 @@ The application wiring. Uses absolute imports (Bokeh loader constraint) and
 silences flowTorch's INFO logging at import time.
 
 - State: `_theme` (``"light"``/``"dark"``), `_cached_pairs`/`_fit_amplitudes`/
-  `_fit_eigvals` (editing baselines cached per fit and on re-sort),
-  `_locked_edit_indices` (unit-circle-locked drags are temporary and reset when
-  another eigenvalue is selected), `_drag_cache` (marker positions for drag
-  detection), `_syncing_params` (guards the programmatic restore in
-  `_reset_signal_parameters` against refit storms), `_themed_divs` (registered
-  theme-dependent elements), and the stored stylesheets
-  `_page_sheet`/`_tab_sheet`/`_mode_tab_sheet` (created once; a theme switch
-  regenerates their `css`).
+  `_fit_eigvals`/`_fit_modes` (editing baselines cached per fit and on
+  re-sort; the fit modes back the shape morph), `_locked_edit_indices`
+  (unit-circle-locked drags are temporary and reset when another eigenvalue
+  is selected), `_drag_cache` (marker positions for drag detection),
+  `_syncing_params`/`_syncing_morph` (guards for programmatic restores),
+  `_themed_divs` (registered theme-dependent elements), and the stored
+  stylesheets `_page_sheet`/`_tab_sheet`/`_mode_tab_sheet` (created once; a
+  theme switch regenerates their `css`).
 - `_build_widgets`: automatic-composition spinners (Nₘ, f_min, f_max, offset),
   time/noise widgets, rank (0 = automatic), auto-rerun select, styled Run
   button + "↺ reset parameters" button, status info box, shared mode sliders,
-  FOUR synchronized time sliders in **seconds** ("t [s]", range
+  the "standing ←→ traveling" morph slider (quadrature mix of the selected
+  mode shape), FOUR synchronized time sliders in **seconds** ("t [s]", range
   [0, (n_time − 1)·dt], step = Δt) and play toggles (panels 1, 2, 4, 5), mode
   checkbox group, readout and propagation-direction info boxes, |b| scale
   spinner, unit-circle lock toggle, and four "↺ reset to DMD fit" buttons
@@ -216,9 +233,15 @@ silences flowTorch's INFO logging at import time.
   (one control row: eigenvalue number, sort, |b| scale, unit-circle lock,
   reset; eigenvalue plane + λᵗ dynamics), "3 · Spectrum" (reset button,
   amplitude spectrum + growth-direction plane σ over c side by side), "4 ·
-  Mode shapes" (reset beside the eigenvalue number slider; nested sub-tabs:
-  Real part / Imaginary part / Phase / Propagation direction with its own time
-  slider + play), "5 · Reconstruction" (reset in the time-slider row). All
+  Mode shapes" (control row: eigenvalue number + "standing ←→ traveling"
+  morph sliders, reset; nested sub-tabs: Shape &amp; propagation (TWO grouped
+  subplots — quadratures Re + Im + faded fitted-Im reference in one axes
+  (the quarter-wavelength offset between the quadratures is directly
+  visible) and the traveling wave, 615×340, shared x-range, constant
+  y-ruler sized by the fit, direction arrow scaling with the net
+  propagation t·|c| (hidden for standing waves), direction readout + time
+  slider + play below) / Phase), "5 ·
+  Reconstruction" (reset in the time-slider row). All
   panels stay alive while hidden; the layout root, main tabs, and nested tabs
   are stored for in-place theming. The root is NOT added here — `__init__`
   adds it after `_attach_callbacks` (bokeh resolves incoming events via the
@@ -254,6 +277,16 @@ silences flowTorch's INFO logging at import time.
     non-propagating modes; refilled on fit/sort/select and inside the drag
     handler so the triangles follow a dragged eigenvalue and flip when it
     crosses the real axis.
+  - `_morph_factor(index)`: quadrature mix factor of a mode recovered by
+    projecting the current imaginary part onto the fitted one (1 = fitted
+    traveling wave; neutral 1 for shapes without imaginary part).
+  - `_apply_morph(index, t)`: writes ``Re(φ_fit) + i·t·Im(φ_fit)`` into
+    ``result.modes`` for the selected mode and conj-mirrors the partner (the
+    pair stays one physical wave; the morph is the exact superposition
+    (1±t)/2 of two opposite-traveling waves), recomputes the reconstruction,
+    and refreshes the mode-shape, spectrum, and time/direction views.
+  - `_on_morph_change`: slider callback (clamps typed values server-side,
+    guarded against programmatic syncs).
   - `_pair_colors()`: one color per conjugate pair (theme-dependent palette;
     unpaired modes gray) shared by eigenvalue plane, dynamics markers,
     spectrum, and reconstruction.
@@ -277,10 +310,11 @@ silences flowTorch's INFO logging at import time.
     `_syncing_params` guard (change callbacks idle, mutual frequency bounds
     set explicitly), then one refit.
   - `_reset_to_fit(reselect=False)`: writes the cached fit baselines
-    (`_fit_eigvals`/`_fit_amplitudes`) back into the result, clears locked
-    edits and the drag cache, resets the |b| scale to 1, recomputes the
-    reconstruction, and refreshes the quantity and time views; panel 5
-    additionally re-selects all modes via `_update_mode_select`.
+    (`_fit_eigvals`/`_fit_amplitudes`/`_fit_modes`) back into the result,
+    clears locked edits and the drag cache, resets the |b| scale to 1 and the
+    morph slider to 1, recomputes the reconstruction, and refreshes the
+    quantity, mode-shape, and time views; panel 5 additionally re-selects all
+    modes via `_update_mode_select`.
   - `_on_eigenvalue_drag`: applies dragged eigenvalues with conjugate
     mirroring (cached pairs), restores the source after backspace deletions,
     recomputes the reconstruction, and refreshes spectrum + time views; the

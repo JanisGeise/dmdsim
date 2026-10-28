@@ -55,7 +55,12 @@ landing tab: DMD in a nutshell, workflow navigation with Open buttons, tips),
 **1 · Signal**, **2 · Eigenvalues**, **3 · Spectrum** (amplitude spectrum and
 growth-direction plane — growth rate σ over phase velocity c = −2πf/κ — side
 by side), **4 · Mode shapes**
-(nested sub-tabs: Real part / Imaginary part / Phase / Propagation direction),
+(nested sub-tabs: Shape & propagation — TWO grouped subplots (quadratures
+Re + Im + faded fitted-Im reference in one axes, and the traveling wave;
+615×340 each, synced x-zoom, one constant y-ruler sized by the fit), the
+wave animation with the direction arrow (length ∝ t·|c|, i.e. the net
+propagation, hidden for standing waves) and the readout below, all live
+under the morph slider — / Phase),
 and **5 · Reconstruction**. All panels stay alive while hidden, so widget state
 survives tab switching. Four time sliders and play toggles (panels 1, 2, 4, 5)
 are two-way synchronized and drive one shared time cursor. Every panel carries
@@ -84,6 +89,16 @@ same link: its growth-direction plane plots each mode's growth rate σ over
 the signed phase velocity c = −2πf/κ (above the zero line toward +x, below
 toward −x), so a real-axis drag moves the mode's point across the zero line;
 conjugate partners coincide there (one physical wave).
+
+**Mode-shape morph (M4c):** the "standing ←→ traveling" slider edits the
+selected mode's shape quadrature, `φ′ = Re(φ_fit) + i·t·Im(φ_fit)` (t = 1
+fitted wave, t = 0 pure standing): the shape is then the exact superposition
+(1±t)/2 of two opposite-traveling waves, so the readout reports the
+traveling/standing split and the wave animation turns from traveling into an
+in-place oscillation. The morph is written into `result.modes` (like all
+edits), conj-mirrored to the partner, relative to the `_fit_modes` baseline,
+and undone by the reset buttons; a re-sort bakes the current morph into the
+new baseline (same semantics as the |b| scale).
 
 ## The playground math
 

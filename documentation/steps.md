@@ -699,3 +699,152 @@ real button clicks via Playwright, server-log and event-pipeline tracing):
   (defaults restored: rank automatic (10) → (6)), and Open navigation all
   fire. pytest 15 passed.
 - Pitfall documented in AGENTS.md (wire `on_click` before `doc.add_root`).
+
+## M4c — traveling ↔ standing morph (mode-shape quadrature editing) (2026-10-28)
+
+First item of the "teaching concepts" ideas (user decision from a brainstorm:
+start with the morph only, slider-controlled, x–t heatmap skipped for now).
+
+- **Concept**: a mode shape's quadrature mix decides traveling vs standing:
+  `φ′ = Re(φ_fit) + i·t·Im(φ_fit)`, t ∈ [0, 1]. The decomposition is exact
+  for linear-phase shapes: φ′ = (1+t)/2 · e^{+iκx} + (1−t)/2 · e^{−iκx} — a
+  standing wave IS two equal opposite-traveling waves. t = 0 freezes the
+  traveling-wave animation into an in-place oscillation; the phase view shows
+  the flattening quadrature; the growth-direction plane keeps the effective
+  c of the traveling component (verified numerically that the fitted slope
+  stays ≈ κ across t).
+- **Widget**: "standing ←→ traveling" slider (0–1, step 0.01) in panel 4's
+  control row; typed values clamped server-side; `_syncing_morph` guard.
+- **State**: edited shapes are written into `result.modes` (same pattern as
+  eigenvalue/amplitude edits), the conjugate partner is conj-mirrored (the
+  pair stays one physical wave), and the morph is relative to a new
+  `_fit_modes` baseline (cached in `_update_quantities`, cleared in the
+  zero-mode branch, restored by `_reset_to_fit` together with the slider → 1;
+  the slider also syncs to the selected mode's mix factor on mode switching
+  via `_morph_factor`, a projection onto the fitted imaginary part).
+- **Readout**: for t < 1 the direction readout reports the exact split, e.g.
+  "mixed wave: 75% traveling toward −x → + 25% counter-traveling (standing
+  fraction)".
+- **Semantics**: re-sorting bakes the current morph into the new baseline
+  (same as the |b| scale); shapes without imaginary part (offset mode) are a
+  visual no-op.
+- **Bug fixed during the audit**: the non-reselect path of `_reset_to_fit`
+  never refreshed the mode-shape views (latent gap — shapes only changed via
+  sort before); `_update_mode_view()` added, regression-guarded in the verify
+  script.
+- Verification: pytest 15 passed (no core changes); `run/verify_gui_polish.py`
+  extended (morph math, partner mirroring, factor recovery, mode-switch sync,
+  readout split, clamping, reset + stale-shape-view guard, sort stability,
+  real-shape no-op) — all green under `-W error::UserWarning`; vision review
+  of panel 4: "acceptable to show", no regressions in panels 2/3; review
+  report appended (B2 fixed, R2/O24–O26 new).
+
+## M4c follow-up — stacked Re/Im subplots (see the morph at a glance) (2026-10-28)
+
+User remark: show the real and imaginary parts in two subplots at the same
+time so the morph slider's effect is directly visible.
+
+- The "Real part" and "Imaginary part" sub-tabs merged into one "Real &
+  imaginary" sub-tab with two stacked subplots (Re above, Im below, each
+  1000×300) sharing a single `Range1d` x-range object — one zoom/pan syncs
+  both. "Phase" and "Propagation direction" keep their own sub-tabs.
+- `create_mode_component_figure(quantity, x_range=None, height=420)` gained
+  optional shared-range and height parameters.
+- Gotcha (documented in AGENTS.md): `TabPanel` titles are plain text — an
+  HTML entity ("Real &amp; imaginary") rendered literally; plain "&" is fine.
+- Verification: pytest 15 passed; `run/verify_gui_polish.py` extended (shared
+  x-range identity, subplot heights, sub-tab titles); vision review of the
+  default sub-tab with the morph slider at 0.4: "acceptable to show" — Re
+  unchanged, Im visibly scaled to ~40%, tab label clean (one stale-server
+  capture produced a false "&amp;" finding first — recaptured fresh).
+
+## M4c follow-up 2 — constant quadrature ruler, standing arrow, merged propagation view (2026-10-28)
+
+User remarks on the morph revision:
+
+- **Constant ylim for the quadrature subplots**: the Re/Im subplots now share
+  ONE `Range1d` y-ruler sized by the fitted quadratures of the selected mode
+  (`_update_mode_view`, margin 1.1) — the morph slider scales the Im curve
+  inside a fixed frame instead of rescaling the axis (vision-verified:
+  identical axis limits at t = 1 and t = 0.4).
+- **No direction arrow for standing waves**: below
+  `_MORPH_STANDING_THRESHOLD` (0.05) the arrow is hidden and the readout
+  reports "standing wave — no net propagation (equal superposition of
+  opposite-traveling waves)" with κ/λ_w from the fitted shape (the morphed
+  phase has no meaningful slope at t = 0).
+- **Arrow length scales with the net propagation**: length =
+  clamp(0.09·t·|c|, 0.04, 0.9), centered on the plot — full length for the
+  pure traveling wave, shrinking proportionally as the morph slider mixes in
+  the counter-traveling wave (vision-verified ratio ≈ 0.31 at t = 0.3),
+  hidden below the standing threshold.
+- **Propagation view merged into the shape sub-tab**: the separate
+  "Propagation direction" sub-tab is gone; the traveling-wave figure, its
+  time slider + play, the readout, and the direction hint now live inside the
+  first sub-tab (renamed "Shape & propagation"), so Re, Im, and the wave
+  animation all react to the morph slider at once. The direction figure is
+  now also registered for theming (it had been missed — dark-mode gap).
+- Verification: pytest 15 passed; `run/verify_gui_polish.py` extended (y-ruler
+  constancy + size, direction figure placement, arrow hidden/standing
+  readout, arrow length formula); vision review of tab4 at t = 1 and t = 0.4:
+  "acceptable to show" (the flagged 70/30 vs 60/40 split was an error in the
+  review prompt — the app's (1+t)/2 split is correct).
+
+## M4c follow-up 3 — one-row layout without scrolling, ghost reference curves (2026-10-28)
+
+User remarks: the morph scaling was not clearly visible, and all three
+subplots (Re, Im, traveling wave) should be visible at the same time without
+scrolling.
+
+- **One-row layout**: the "Shape & propagation" sub-tab now shows Re | Im |
+  traveling wave SIDE BY SIDE (410×340 each, spacing 5) with a shared
+  `Range1d` x-range (one zoom/pan syncs all three); below it a row with the
+  time slider + play (left) and the direction readout (right), then the three
+  hints. Measured vertical overflow beyond a 900 px laptop viewport: 0 px —
+  the whole panel fits without scrolling.
+- **Ghost reference curves**: the Im subplot and the traveling-wave view draw
+  a faded dotted line of the FITTED state (source column ``reference``, filled
+  from the `_fit_modes` baseline; the wave reference uses the fitted shape at
+  the current time level) — the morph scaling and the standing transition are
+  now visible against the original, not from memory. The phase view (own
+  sub-tab) gained the same ghost plus a "fitted (t = 1)" legend entry.
+- Builder signatures extended: `create_mode_component_figure(..., width=1000)`
+  and `create_direction_figure(x_range=None, height=420, width=1000)`.
+- Verification: pytest 15 passed; `run/verify_gui_polish.py` extended (shared
+  x-range across all three figures, row placement, sizes, reference columns
+  incl. the fitted wave reference); vision review of viewport captures at
+  t = 1 and t = 0.4: "acceptable to show" — three subplots fully visible,
+  constant ruler confirmed, Im/wave scaling vs the ghost references and the
+  70/30 mixed-wave line verified.
+
+## M4c follow-up 4 — combined quadrature figure (Re & Im in one axes) (2026-10-28)
+
+User idea (confirmed as Variant A): combine the Re and Im subplots into ONE
+figure — more space, and the phase difference between the quadratures is
+directly visible.
+
+- New `create_quadrature_figure`: solid Re(φ) (blue) and Im(φ) (orange) in
+  one axes plus the faded dotted fitted-Im reference, with a click-to-hide
+  legend. The quarter-wavelength spatial offset between the quadratures —
+  their phase relation, whose sign encodes the propagation direction — can
+  be read directly off the plot; the morph scaling is judged against Re and
+  the ghost in the same frame.
+- Layout: the "Shape & propagation" sub-tab now has TWO grouped subplots
+  (quadratures | traveling wave, 615×340 each, shared x-range, constant
+  shared y-ruler sized by the fit); the phase view keeps its own sub-tab.
+  State: `self._quadrature_figure/_quadrature_source` and
+  `self._phase_figure/_phase_source` replace the `_mode_views` dict.
+- Verification: pytest 15 passed; `run/verify_gui_polish.py` updated (new
+  attributes, sizes, shared ranges, reference checks, stale-view guard);
+  vision review of viewport captures at t = 1 and t = 0.4: "acceptable to
+  show" — three curves distinguishable, π/2 shift visible, Im at ~40 % of
+  the ghost, legend clean, no-scroll fit kept (0 px overflow).
+
+## M4c follow-up 5 — quadrature legend moved outside (2026-10-28)
+
+User remark: the legend should be three columns, centered top, outside the
+plot. The quadrature figure's legend is now laid out horizontally with
+`ncols = 3` and moved outside the frame via `fig.add_layout(fig.legend[0],
+"above")` with `location = "center"` — the curves are no longer covered.
+Verification: pytest 15 passed; headless verify green; vision review
+("acceptable to show": legend above the frame, three entries side by side,
+no curve overlap, 0 px overflow).

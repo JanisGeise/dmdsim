@@ -213,57 +213,154 @@ _MODE_FIGURE_SPECS = {
 }
 
 
-def create_mode_component_figure(quantity: str) -> tuple[figure, ColumnDataSource]:
+def create_mode_component_figure(quantity: str, x_range: Range1d | None = None,
+                                 y_range: Range1d | None = None,
+                                 height: int = 420,
+                                 width: int = 1000) -> tuple[figure, ColumnDataSource]:
     """
     Create a single-quantity mode shape figure.
 
     The phase view renders the unwrapped phase as a continuous line and overlays
-    the wrapped values as faded points to explain the 2π jumps.
+    the wrapped values as faded points to explain the 2π jumps. The imaginary
+    and phase views draw a faded reference line of the fitted shape (column
+    ``reference``) so edits like the quadrature morph are visible against the
+    original.
 
     :param quantity: quantity to display; one of ``real``, ``imag``, or ``phase``
     :type quantity: str
+    :param x_range: shared x-range for grouping several quantity figures with
+        synced axes, defaults to None (auto range)
+    :type x_range: Range1d | None, optional
+    :param y_range: shared y-range (e.g. one constant ruler for the real and
+        imaginary quadratures), defaults to None (auto range)
+    :type y_range: Range1d | None, optional
+    :param height: figure height in pixels, defaults to 420
+    :type height: int
+    :param width: figure width in pixels, defaults to 1000
+    :type width: int
     :return: figure and the data source; the source expects the columns ``s``,
-        ``value``, and ``unwrapped``
+        ``value``, ``unwrapped``, and ``reference``
     :rtype: tuple[figure, ColumnDataSource]
     """
     assert quantity in _MODE_FIGURE_SPECS, (
         f"Unknown mode quantity {quantity!r}, must be one of: {sorted(_MODE_FIGURE_SPECS)}")
     title, y_label, color = _MODE_FIGURE_SPECS[quantity]
+    options: dict = dict(width=width, height=height, title=title)
+    if x_range is not None:
+        # a shared range object syncs the axes of grouped quantity figures
+        options["x_range"] = x_range
+    if y_range is not None:
+        options["y_range"] = y_range
     if quantity == "phase":
-        fig = figure(width=1000, height=420, title=title,
-                     y_range=Range1d(-np.pi - 0.4, np.pi + 0.4))
+        fig = figure(**options, y_range=Range1d(-np.pi - 0.4, np.pi + 0.4))
     else:
-        fig = figure(width=1000, height=420, title=title)
-    source = ColumnDataSource(dict(s=[], value=[], unwrapped=[]))
+        fig = figure(**options)
+    source = ColumnDataSource(dict(s=[], value=[], unwrapped=[], reference=[]))
     if quantity == "phase":
         # the wrapped values explain where the jumps of the sawtooth come from
         fig.scatter(x="s", y="value", source=source, size=5, color=color, alpha=0.35,
                     legend_label="wrapped (±π)")
         fig.line(x="s", y="unwrapped", source=source, color=color, line_width=2,
                  legend_label="unwrapped")
+        fig.line(x="s", y="reference", source=source, color=color, line_width=1.5,
+                 line_dash="dotted", line_alpha=0.35,
+                 legend_label="fitted (t = 1)")
         fig.legend.location = "top_left"
         fig.legend.click_policy = "hide"
     else:
         fig.line(x="s", y="value", source=source, color=color, line_width=2)
+        if quantity == "imag":
+            # faded fitted shape: the morph slider scales the solid curve
+            # against this reference
+            fig.line(x="s", y="reference", source=source, color=color,
+                     line_width=1.5, line_dash="dotted", line_alpha=0.35)
     fig.xaxis.axis_label = "x"
     fig.yaxis.axis_label = y_label
     return fig, source
 
 
-def create_direction_figure() -> tuple[figure, ColumnDataSource, Arrow]:
+def create_quadrature_figure(x_range: Range1d | None = None,
+                             y_range: Range1d | None = None,
+                             height: int = 420,
+                             width: int = 1000) -> tuple[figure, ColumnDataSource]:
+    """
+    Create the combined quadrature view of the selected mode shape.
+
+    Draws the real and imaginary parts of :math:`\\phi` in one axes so the
+    quarter-wavelength offset between the quadratures (their spatial phase
+    relation) is directly visible; a faded dotted line shows the fitted
+    imaginary part (column ``reference``) so the morph slider's scaling is
+    visible against the original.
+
+    :param x_range: shared x-range for grouping the shape figures with synced
+        axes, defaults to None (auto range)
+    :type x_range: Range1d | None, optional
+    :param y_range: shared constant y-ruler of the quadrature view, defaults
+        to None (auto range)
+    :type y_range: Range1d | None, optional
+    :param height: figure height in pixels, defaults to 420
+    :type height: int
+    :param width: figure width in pixels, defaults to 1000
+    :type width: int
+    :return: figure and the data source; the source expects the columns ``s``,
+        ``real``, ``imag``, and ``reference``
+    :rtype: tuple[figure, ColumnDataSource]
+    """
+    options: dict = dict(width=width, height=height,
+                         title="Re(φ) and Im(φ) of the selected mode")
+    if x_range is not None:
+        options["x_range"] = x_range
+    if y_range is not None:
+        options["y_range"] = y_range
+    fig = figure(**options)
+    source = ColumnDataSource(dict(s=[], real=[], imag=[], reference=[]))
+    fig.line(x="s", y="real", source=source, color="#1f77b4", line_width=2,
+             legend_label="Re(φ)")
+    fig.line(x="s", y="imag", source=source, color="#ff7f0e", line_width=2,
+             legend_label="Im(φ)")
+    fig.line(x="s", y="reference", source=source, color="#ff7f0e", line_width=1.5,
+             line_dash="dotted", line_alpha=0.35,
+             legend_label="fitted Im(φ) (t = 1)")
+    # three-column legend, centered outside the frame above the plot
+    fig.legend.ncols = 3
+    fig.legend.orientation = "horizontal"
+    fig.legend.location = "center"
+    fig.add_layout(fig.legend[0], "above")
+    fig.xaxis.axis_label = "x"
+    fig.yaxis.axis_label = "φ quadratures"
+    return fig, source
+
+
+def create_direction_figure(x_range: Range1d | None = None, height: int = 420,
+                            width: int = 1000) -> tuple[figure, ColumnDataSource, Arrow]:
     """
     Create the traveling-wave view of the selected mode with a direction arrow.
 
     The wave contribution :math:`\\Re\\{\\phi b \\lambda^t\\}` is animated with
     the global time cursor; the arrow shows the propagation direction and is
-    positioned by the application.
+    positioned by the application. A faded reference line shows the
+    contribution of the fitted shape (column ``reference``), so quadrature
+    edits are visible against the original.
 
-    :return: figure, the data source (columns ``s`` and ``value``), and the
-        direction arrow annotation
+    :param x_range: shared x-range for grouping the shape figures with synced
+        axes, defaults to None (auto range)
+    :type x_range: Range1d | None, optional
+    :param height: figure height in pixels, defaults to 420
+    :type height: int
+    :param width: figure width in pixels, defaults to 1000
+    :type width: int
+    :return: figure, the data source (columns ``s``, ``value``, and
+        ``reference``), and the direction arrow annotation
     :rtype: tuple[figure, ColumnDataSource, Arrow]
     """
-    fig = figure(width=1000, height=420, title="traveling wave of the selected mode")
-    source = ColumnDataSource(dict(s=[], value=[]))
+    options: dict = dict(width=width, height=height,
+                         title="traveling wave of the selected mode")
+    if x_range is not None:
+        options["x_range"] = x_range
+    fig = figure(**options)
+    source = ColumnDataSource(dict(s=[], value=[], reference=[]))
+    fig.line(x="s", y="reference", source=source, color="#8430ce", line_width=1.5,
+             line_dash="dotted", line_alpha=0.35)
     fig.line(x="s", y="value", source=source, color="#8430ce", line_width=2)
     arrow = Arrow(x_start=0.35, y_start=0.0, x_end=0.65, y_end=0.0,
                   line_color="#8430ce", line_width=3,

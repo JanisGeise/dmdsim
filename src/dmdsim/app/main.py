@@ -13,8 +13,8 @@ from bokeh.application import Application
 from bokeh.server.callbacks import PeriodicCallback
 from bokeh.application.handlers import FunctionHandler
 from bokeh.models import (Button, CheckboxGroup, Div, GlobalInlineStyleSheet,
-                          InlineStyleSheet, Select, Slider, Spinner, Switch,
-                          TabPanel, Tabs, Toggle, Tooltip)
+                          InlineStyleSheet, Range1d, Select, Slider, Spinner,
+                          Switch, TabPanel, Tabs, Toggle, Tooltip)
 from tornado.ioloop import PeriodicCallback as TornadoPeriodicCallback
 
 from dmdsim.core.engine import fit_dmd
@@ -26,6 +26,7 @@ from dmdsim.app.figures import (create_direction_figure, create_eigenvalue_figur
                                 create_growth_direction_figure,
                                 create_mode_component_figure,
                                 create_mode_dynamics_figure,
+                                create_quadrature_figure,
                                 create_signal_curve_figure, create_spectrum_figure,
                                 create_time_curves_figure)
 from dmdsim.app.styling import (PAIR_PALETTE, PAIR_PALETTE_DARK, THEMES, header,
@@ -46,6 +47,14 @@ _WATCHDOG_INTERVAL_MS = 500
 _SHUTDOWN_GRACE_MS = 2000
 # vertical offset of the travel-direction triangles above the eigenvalue markers
 _DIRECTION_MARKER_OFFSET = 0.13
+# below this quadrature mix the wave counts as standing (no direction arrow)
+_MORPH_STANDING_THRESHOLD = 0.05
+# travel-direction arrow length: proportional to the net propagation of the
+# pattern (traveling fraction t times the phase velocity |c|), clamped to
+# stay visible and inside the plot domain x ∈ [0, 1]
+_ARROW_SPEED_SCALE = 0.09
+_ARROW_MIN_LENGTH = 0.04
+_ARROW_MAX_LENGTH = 0.9
 
 # per-mode editor defaults: wavenumber, frequency, amplitude, growth rate, active
 _MODE_DEFAULTS: list[tuple[float, float, float, float, bool]] = [
@@ -103,7 +112,10 @@ _HINT_SIGNAL_ANIMATION = ("Animation of the created signal in the fixed window "
 _HINT_REAL = ("Real part of the mode shape φ(s); for a traveling wave it is a cosine "
               "whose zero crossings are spaced by half a wavelength.")
 _HINT_IMAG = ("Imaginary part of the mode shape φ(s); real and imaginary part "
-              "together encode amplitude and spatial phase of the wave.")
+              "together encode amplitude and spatial phase of the wave. The "
+              "'standing ←→ traveling' slider above scales this part: 1 is the "
+              "fitted traveling wave, 0 a pure standing pattern — the shape is "
+              "then an equal superposition of two opposite-traveling waves.")
 _HINT_PHASE = ("The phase arg(φ) is only defined modulo 2π, so it wraps at ±π "
                "(faded points). The unwrapped line is continuous: its slope is the "
                "wavenumber κ and its offset is the spatial phase shift of the wave.")
@@ -113,7 +125,10 @@ _HINT_DIRECTION = ("The wave contribution Re{φ·b·λᵗ} of the selected mode,
                    "the wavelength λ_w, and the phase velocity c from the phase "
                    "slope. The eigenvalue's half plane sets the sign of f, which "
                    "together with the sign of κ fixes the direction via "
-                   "c = −2πf/κ.")
+                   "c = −2πf/κ. The 'standing ←→ traveling' slider mixes in a "
+                   "counter-traveling wave: the animation slows down and turns "
+                   "into an in-place oscillation, and the arrow shrinks with "
+                   "the remaining net propagation.")
 
 
 def _spinner(title: str, value: float | int, low: float | int, high: float | int,
@@ -176,9 +191,11 @@ class DMDPlayground:
         self._syncing_drag = False
         self._syncing_amplitude = False
         self._syncing_params = False
+        self._syncing_morph = False
         self._cached_pairs: list[tuple[int, int]] = []
         self._fit_amplitudes: np.ndarray | None = None
         self._fit_eigvals: np.ndarray | None = None
+        self._fit_modes: np.ndarray | None = None
         self._locked_edit_indices: set[int] = set()
         self._drag_cache: tuple[np.ndarray, np.ndarray] = (np.array([]), np.array([]))
         self._themed_divs: list[tuple[Div, str, str]] = []
@@ -272,6 +289,11 @@ class DMDPlayground:
         # interactive elements of the quantity views
         self._mode_slider = Slider(title="eigenvalue number", start=0, end=0, value=0,
                                    step=1, width=300)
+        # quadrature mix of the selected mode shape: t = 1 keeps the fitted
+        # traveling wave, t = 0 scales the imaginary part to zero (pure
+        # standing pattern); Slider has no description, the hints explain it
+        self._morph_slider = Slider(title="standing ←→ traveling", start=0.0,
+                                    end=1.0, value=1.0, step=0.01, width=220)
         self._dynamics_mode_slider = Slider(title="eigenvalue number", start=0, end=0,
                                             value=0, step=1, width=300)
         self._time_slider = Slider(title="t [s]", start=0, end=2.99, value=0, step=0.01,
@@ -325,6 +347,12 @@ class DMDPlayground:
         :return: None
         :rtype: None
         """
+        # one shared x-range syncs the two grouped mode-shape figures
+        # (quadratures, traveling wave); one shared y-ruler (sized by the
+        # fitted quadratures in _update_mode_view) keeps the morph scaling
+        # inside a fixed frame
+        shape_x_range = Range1d(0.0, 1.0)
+        self._shape_y_range = Range1d(-1.0, 1.0)
         self._eigenvalue_figure, self._eigenvalue_source, \
             self._upper_halfplane_renderer, self._lower_halfplane_renderer, \
             self._upper_halfplane_label, self._lower_halfplane_label = \
@@ -332,8 +360,11 @@ class DMDPlayground:
         (self._dynamics_figure, self._dynamics_trail_source, self._dynamics_point_source,
          self._dynamics_all_source, self._dynamics_trail_renderer) = \
             create_mode_dynamics_figure()
+        self._quadrature_figure, self._quadrature_source = create_quadrature_figure(
+            x_range=shape_x_range, y_range=self._shape_y_range, height=340,
+            width=615)
         self._direction_figure, self._direction_source, self._direction_arrow = \
-            create_direction_figure()
+            create_direction_figure(x_range=shape_x_range, height=340, width=615)
         self._spectrum_figure, self._spectrum_source, self._nyquist_spans = \
             create_spectrum_figure()
         self._continuous_figure, self._continuous_source = \
@@ -342,11 +373,8 @@ class DMDPlayground:
             create_signal_curve_figure()
         (self._time_figure, self._time_source, self._pair_source,
          self._selected_renderer, self._curve_renderers) = create_time_curves_figure()
-        # one single-quantity figure per mode submenu
-        self._mode_views = {}
-        for quantity in ("real", "imag", "phase"):
-            mode_figure, mode_source = create_mode_component_figure(quantity)
-            self._mode_views[quantity] = (mode_figure, mode_source)
+        # the phase view keeps its own sub-tab (1000 px wide)
+        self._phase_figure, self._phase_source = create_mode_component_figure("phase")
         # register figures with their step colors for theming
         self._styled_figures = [
             (self._eigenvalue_figure, "eigenvalues"),
@@ -355,7 +383,9 @@ class DMDPlayground:
             (self._continuous_figure, "spectrum"),
             (self._time_figure, "reconstruction"),
             (self._signal_figure, "setup"),
-            *[(mode_figure, "modes") for mode_figure, _ in self._mode_views.values()],
+            (self._quadrature_figure, "modes"),
+            (self._direction_figure, "modes"),
+            (self._phase_figure, "modes"),
         ]
 
     def _build_layout(self) -> None:
@@ -493,23 +523,24 @@ class DMDPlayground:
             spacing=10,
         )
         mode_tabs = Tabs(tabs=[
-            TabPanel(child=column(self._mode_views["real"][0],
-                                  self._themed_hint(_HINT_REAL, width=1000), spacing=8),
-                     title="Real part"),
-            TabPanel(child=column(self._mode_views["imag"][0],
-                                  self._themed_hint(_HINT_IMAG, width=1000), spacing=8),
-                     title="Imaginary part"),
-            TabPanel(child=column(self._mode_views["phase"][0],
+            TabPanel(child=column(
+                row(self._quadrature_figure, self._direction_figure, spacing=5),
+                row(column(self._modes_time_slider, self._modes_play_toggle,
+                           width=300),
+                    self._direction_div),
+                self._themed_hint(_HINT_REAL, width=1230),
+                self._themed_hint(_HINT_IMAG, width=1230),
+                self._themed_hint(_HINT_DIRECTION, width=1230),
+                spacing=8),
+                title="Shape & propagation"),
+            TabPanel(child=column(self._phase_figure,
                                   self._themed_hint(_HINT_PHASE, width=1000), spacing=8),
                      title="Phase"),
-            TabPanel(child=column(self._direction_figure,
-                                  row(self._modes_time_slider, self._modes_play_toggle),
-                                  self._direction_div, spacing=8),
-                     title="Propagation direction"),
         ], tabs_location="above",
             stylesheets=[self._mode_tab_sheet])
         self._mode_tabs = mode_tabs
-        mode_panel = column(row(self._mode_slider, self._reset_fit_buttons["modes"]),
+        mode_panel = column(row(self._mode_slider, self._morph_slider,
+                                self._reset_fit_buttons["modes"]),
                             mode_tabs, spacing=10)
         time_panel = column(
             self._themed_header("Time &amp; mode selection", "reconstruction"),
@@ -721,6 +752,7 @@ class DMDPlayground:
             widget.on_change(attribute, partial(self._on_parameter_change, widget=widget))
         self._eigenvalue_source.on_change("data", self._on_eigenvalue_drag)
         self._amplitude_spinner.on_change("value", self._on_amplitude_change)
+        self._morph_slider.on_change("value", self._on_morph_change)
         self._run_button.on_click(self._run_dmd)
         self._reset_signal_button.on_click(self._reset_signal_parameters)
         for key, button in self._reset_fit_buttons.items():
@@ -849,13 +881,15 @@ class DMDPlayground:
 
     def _reset_to_fit(self, reselect: bool = False) -> None:
         """
-        Restore the fitted eigenvalues and amplitudes and refresh all views.
+        Restore the fitted eigenvalues, amplitudes, and mode shapes and refresh
+        all views.
 
         The reset undoes every eigenvalue drag (including unit-circle-locked
-        ones) and every |b| scaling: the cached fit baselines are written back,
-        the reconstruction is recomputed, and the eigenvalue plane, spectrum,
-        continuous-time plane, and time/dynamics views are updated. The panel-5
-        button additionally checks all mode-selection boxes again.
+        ones), every |b| scaling, and every mode-shape morph: the cached fit
+        baselines are written back, the reconstruction is recomputed, and the
+        eigenvalue plane, spectrum, growth-direction plane, and time/dynamics
+        views are updated. The panel-5 button additionally checks all
+        mode-selection boxes again.
 
         :param reselect: whether to restore the full mode selection as well
         :type reselect: bool
@@ -864,20 +898,27 @@ class DMDPlayground:
         """
         result = self._result
         if result is None or self._signal is None or self._fit_eigvals is None \
-                or self._fit_amplitudes is None:
+                or self._fit_amplitudes is None or self._fit_modes is None:
             return
         result.eigvals = self._fit_eigvals.copy()
         result.amplitudes = self._fit_amplitudes.copy()
+        result.modes = self._fit_modes.copy()
         self._locked_edit_indices = set()
         self._drag_cache = (result.eigvals.real.copy(), result.eigvals.imag.copy())
         self._syncing_amplitude = True
         self._amplitude_spinner.value = 1.0
         self._syncing_amplitude = False
+        self._syncing_morph = True
+        self._morph_slider.value = 1.0
+        self._syncing_morph = False
         self._reconstruction = synthesize(result.modes, result.amplitudes,
                                           result.eigvals, self._signal.dt,
                                           self._signal.n_time)
         self._update_eigenvalue_markers()
         self._update_spectrum()
+        # the shape views must follow the restored modes (the morph edits them
+        # in place; the reselect path refreshes them via the view callbacks)
+        self._update_mode_view()
         if reselect:
             # restoring the selection fires the view callbacks (time view incl.)
             self._update_mode_select()
@@ -994,8 +1035,8 @@ class DMDPlayground:
         """
         Update the eigenvalue plane, the spectrum, and the continuous-time
         eigenvalue plane with their axis ranges, and refresh the cached editing
-        state (pairs, fitted amplitudes, marker positions) for the eigenvalue
-        editing.
+        state (pairs, fitted amplitudes, fitted mode shapes, marker positions)
+        for the quantity editing.
 
         :return: None
         :rtype: None
@@ -1014,20 +1055,27 @@ class DMDPlayground:
             self._cached_pairs = []
             self._fit_amplitudes = None
             self._fit_eigvals = None
+            self._fit_modes = None
             self._drag_cache = (np.array([]), np.array([]))
             return
         self._update_eigenvalue_markers()
-        # cache the fitted baseline (eigenvalues, amplitudes), the pair structure,
-        # and marker positions for the eigenvalue editing (dragging, amplitude
-        # scaling, and the unit-circle lock reset)
+        # cache the fitted baseline (eigenvalues, amplitudes, mode shapes), the
+        # pair structure, and marker positions for the quantity editing
+        # (dragging, amplitude scaling, shape morphing, unit-circle lock reset)
         self._cached_pairs = result.pairs
         self._fit_amplitudes = result.amplitudes.copy()
         self._fit_eigvals = result.eigvals.copy()
+        self._fit_modes = result.modes.copy()
         self._locked_edit_indices = set()
         self._drag_cache = (result.eigvals.real.copy(), result.eigvals.imag.copy())
         self._syncing_amplitude = True
         self._amplitude_spinner.value = 1.0
         self._syncing_amplitude = False
+        # a refit restores fresh shapes (t = 1); a re-sort bakes the current
+        # morph into the new baseline, so the slider reads 1 in both cases
+        self._syncing_morph = True
+        self._morph_slider.value = 1.0
+        self._syncing_morph = False
         # keep the eigenvalue plane centered on the unit circle with margin
         radius = max(1.2, float(np.abs(result.eigvals).max()) * 1.1)
         self._eigenvalue_figure.x_range.start = -radius
@@ -1197,26 +1245,46 @@ class DMDPlayground:
 
     def _update_mode_view(self) -> None:
         """
-        Update the mode shape sub-views and the propagation direction readout.
+        Update the quadrature view, the phase view, and the direction readout.
+
+        The shared y-ruler of the quadrature view is sized by the fitted
+        quadratures of the selected mode and stays constant while the morph
+        slider scales the imaginary part inside that fixed frame; the faded
+        reference line shows the fitted imaginary part.
 
         :return: None
         :rtype: None
         """
         result = self._result
         if result is None or result.n_modes == 0:
-            for _, source in self._mode_views.values():
-                source.data = dict(s=[], value=[], unwrapped=[])
+            self._quadrature_source.data = dict(s=[], real=[], imag=[],
+                                                reference=[])
+            self._phase_source.data = dict(s=[], value=[], unwrapped=[],
+                                           reference=[])
             self._direction_div.text = "no modes fitted"
             return
         index = min(int(self._mode_slider.value), result.n_modes - 1)
         shape = result.mode(index)
         s = self._signal.space
         wrapped = np.angle(shape)
-        values = {"real": np.real(shape), "imag": np.imag(shape),
-                  "phase": wrapped, "unwrapped": np.unwrap(wrapped)}
-        for quantity, (_, source) in self._mode_views.items():
-            source.data = dict(s=s, value=values[quantity],
-                               unwrapped=values["unwrapped"])
+        # the faded reference is the fitted shape: morph edits show against it
+        fit_shape = (self._fit_modes[:, index] if self._fit_modes is not None
+                     else shape)
+        fit_wrapped = np.angle(fit_shape)
+        self._quadrature_source.data = dict(s=s, real=np.real(shape),
+                                            imag=np.imag(shape),
+                                            reference=np.imag(fit_shape))
+        self._phase_source.data = dict(s=s, value=wrapped,
+                                       unwrapped=np.unwrap(wrapped),
+                                       reference=fit_wrapped)
+        if self._fit_modes is not None:
+            # one constant ruler for the quadrature view, sized by the fit
+            re_fit = np.real(self._fit_modes[:, index])
+            im_fit = np.imag(self._fit_modes[:, index])
+            vmax = max(float(np.abs(re_fit).max()), float(np.abs(im_fit).max()),
+                       1e-12)
+            self._shape_y_range.start = -1.1 * vmax
+            self._shape_y_range.end = 1.1 * vmax
 
     def _update_direction_view(self) -> None:
         """
@@ -1225,7 +1293,11 @@ class DMDPlayground:
         The wave contribution of the selected mode is shown at the current time
         with a fixed y-range covering the whole animation, so growth is visible
         without rescaling. The propagation analysis follows from the phase slope
-        :math:`\\kappa` (unwrapped linear fit) and the signed frequency.
+        :math:`\\kappa` (unwrapped linear fit) and the signed frequency. Below
+        the standing threshold of the morph slider the arrow is hidden and the
+        readout reports a standing wave; otherwise the arrow length scales with
+        the net propagation of the pattern (traveling fraction :math:`t` times
+        the speed :math:`|c|`, clamped to the plot domain).
 
         :return: None
         :rtype: None
@@ -1233,7 +1305,7 @@ class DMDPlayground:
         result = self._result
         signal = self._signal
         if result is None or result.n_modes == 0 or signal is None:
-            self._direction_source.data = dict(s=[], value=[])
+            self._direction_source.data = dict(s=[], value=[], reference=[])
             self._direction_div.text = "no modes fitted"
             self._direction_arrow.visible = False
             return
@@ -1242,7 +1314,13 @@ class DMDPlayground:
         shape = result.mode(index)
         amplitude = result.amplitudes[index]
         wave = np.real(shape * (amplitude * result.eigvals[index] ** t_index))
-        self._direction_source.data = dict(s=self._signal.space, value=wave)
+        # faded reference: the contribution of the fitted shape at the same
+        # time level (isolates the morph effect on the traveling wave)
+        fit_shape = (self._fit_modes[:, index] if self._fit_modes is not None
+                     else shape)
+        reference = np.real(fit_shape * (amplitude * result.eigvals[index] ** t_index))
+        self._direction_source.data = dict(s=self._signal.space, value=wave,
+                                           reference=reference)
         # fixed y-range over the whole animation so growth is visible without rescaling
         growth = result.growth_rates[index]
         envelope = (np.abs(amplitude) * float(np.abs(shape).max())
@@ -1254,11 +1332,28 @@ class DMDPlayground:
         header = (f"<b>mode {index}</b> · f = {frequency:.3f} Hz · "
                   f"|b| = {np.abs(amplitude):.3f}<br>")
         slope = float(self._phase_slopes()[index])
+        t = self._morph_factor(index)
         if abs(slope) < 1e-12:
             self._direction_arrow.visible = False
             self._direction_div.text = (header
                                         + "spatially constant shape — no propagation "
                                         "direction (wavenumber κ ≈ 0)")
+            return
+        if t < _MORPH_STANDING_THRESHOLD:
+            # pure standing: no net propagation and no direction arrow; the
+            # wavelength follows from the fitted shape (the morphed phase has
+            # no meaningful slope as t approaches zero)
+            self._direction_arrow.visible = False
+            text = header
+            fit_slope = float(np.polyfit(self._signal.space,
+                                         np.unwrap(np.angle(
+                                             self._fit_modes[:, index])), 1)[0])
+            if abs(fit_slope) > 1e-12:
+                text += (f"κ = {fit_slope:+.3f} rad per unit length → "
+                         f"λ_w = {2.0 * np.pi / abs(fit_slope):.2f}<br>")
+            text += ("standing wave — no net propagation (equal superposition "
+                     "of opposite-traveling waves)")
+            self._direction_div.text = text
             return
         wavelength = 2.0 * np.pi / abs(slope)
         if abs(frequency) < 1e-12:
@@ -1275,22 +1370,36 @@ class DMDPlayground:
         side = "above" if eigval.imag > 0.0 else "below"
         sign = ">" if eigval.imag > 0.0 else "<"
         self._direction_arrow.visible = True
+        # the arrow length scales with the net propagation of the pattern
+        # (traveling fraction t times the speed |c|), clamped to the domain
+        # and centered on the plot
+        length = min(max(_ARROW_SPEED_SCALE * abs(velocity) * t,
+                         _ARROW_MIN_LENGTH), _ARROW_MAX_LENGTH)
         if velocity > 0.0:
-            self._direction_arrow.x_start = 0.35
-            self._direction_arrow.x_end = 0.65
+            self._direction_arrow.x_start = 0.5 - 0.5 * length
+            self._direction_arrow.x_end = 0.5 + 0.5 * length
         else:
-            self._direction_arrow.x_start = 0.65
-            self._direction_arrow.x_end = 0.35
+            self._direction_arrow.x_start = 0.5 + 0.5 * length
+            self._direction_arrow.x_end = 0.5 - 0.5 * length
         self._direction_arrow.y_start = 1.1 * envelope
         self._direction_arrow.y_end = 1.1 * envelope
         arrow_char = "→" if velocity > 0.0 else "←"
+        # a morphed shape is an exact superposition of two opposite-traveling
+        # waves with amplitudes (1 ± t) / 2: report the traveling/standing split
+        if t < 1.0 - 1e-9:
+            mixed = (f"<br>mixed wave: {50.0 * (1.0 + t):.0f}% traveling toward "
+                     f"{direction} {arrow_char} + {50.0 * (1.0 - t):.0f}% "
+                     "counter-traveling (standing fraction)")
+        else:
+            mixed = ""
         self._direction_div.text = (
             header
             + f"κ = {slope:+.3f} rad per unit length → λ_w = {wavelength:.2f}<br>"
             + f"Im λ = {eigval.imag:+.4f} → eigenvalue {side} the real axis "
               f"(f {sign} 0)<br>"
             + f"phase velocity c = −2πf/κ = {abs(velocity):.2f} units per second "
-              f"toward {direction} {arrow_char}")
+              f"toward {direction} {arrow_char}"
+            + mixed)
 
     def _update_mode_select(self) -> None:
         """
@@ -1539,6 +1648,93 @@ class DMDPlayground:
         self._update_spectrum()
         self._update_time_view()
 
+    def _morph_factor(self, index: int) -> float:
+        """
+        Recover the quadrature mix factor of a mode from the edited shape.
+
+        The morphed shape stores the imaginary part scaled by the factor, so
+        the factor follows from a projection of the current imaginary part
+        onto the fitted one; shapes without an imaginary part (e.g. a constant
+        offset mode) report the neutral factor 1.
+
+        :param index: mode index
+        :type index: int
+        :return: quadrature mix factor in ``[0, 1]`` (1 = fitted traveling wave)
+        :rtype: float
+        """
+        if self._fit_modes is None or index >= self._fit_modes.shape[1]:
+            return 1.0
+        fit_imag = np.imag(self._fit_modes[:, index])
+        norm = float(fit_imag @ fit_imag)
+        if norm <= 1e-30:
+            return 1.0
+        shape_imag = np.imag(self._result.modes[:, index])
+        return float(min(max((shape_imag @ fit_imag) / norm, 0.0), 1.0))
+
+    def _apply_morph(self, index: int, t: float) -> None:
+        """
+        Apply the quadrature mix factor to a mode shape and refresh all views.
+
+        The morphed shape is ``Re(φ) + i·t·Im(φ)`` of the fitted baseline: t = 1
+        keeps the fitted traveling wave and t = 0 a pure standing pattern
+        (equal superposition of two opposite-traveling waves). The conjugate
+        partner is mirrored so the pair stays one physical wave, the
+        reconstruction is recomputed, and the mode-shape, spectrum, and
+        time/direction views are updated.
+
+        :param index: mode index to morph
+        :type index: int
+        :param t: quadrature mix factor in ``[0, 1]``
+        :type t: float
+        :return: None
+        :rtype: None
+        """
+        result = self._result
+        shape = self._fit_modes[:, index]
+        morphed = shape.real + 1j * t * shape.imag
+        result.modes[:, index] = morphed
+        # mirror the conjugate partner (same physical wave, conj shape)
+        for a, b in self._cached_pairs:
+            if a == index:
+                result.modes[:, b] = np.conj(morphed)
+            elif b == index:
+                result.modes[:, a] = np.conj(morphed)
+        self._reconstruction = synthesize(result.modes, result.amplitudes,
+                                          result.eigvals, self._signal.dt,
+                                          self._signal.n_time)
+        self._update_mode_view()
+        self._update_spectrum()
+        self._update_time_view()
+        error = float(np.abs(self._reconstruction - self._signal.samples).max())
+        self._status_div.text = f"edited — max deviation from the original: {error:.1e}"
+
+    def _on_morph_change(self, attr: str, old: object, new: object) -> None:
+        """
+        Apply the slider's quadrature mix to the selected mode shape live.
+
+        Typed slider values are not clamped by the widget, so the allowed
+        range is enforced here before anything is recomputed.
+
+        :param attr: name of the changed widget attribute
+        :type attr: str
+        :param old: previous attribute value
+        :type old: object
+        :param new: new attribute value (the quadrature mix factor)
+        :type new: object
+        :return: None
+        :rtype: None
+        """
+        if self._syncing_morph or self._result is None or self._signal is None \
+                or self._fit_modes is None:
+            return
+        t = min(max(float(new), 0.0), 1.0)
+        if t != float(new):
+            self._syncing_morph = True
+            self._morph_slider.value = t
+            self._syncing_morph = False
+        index = min(int(self._mode_slider.value), self._result.n_modes - 1)
+        self._apply_morph(index, t)
+
     def _on_sort_change(self, attr: str, old: object, new: object) -> None:
         """
         Re-sort the current DMD result and refresh all mode-dependent views.
@@ -1702,6 +1898,10 @@ class DMDPlayground:
         self._syncing_amplitude = True
         self._amplitude_spinner.value = scale
         self._syncing_amplitude = False
+        # the morph slider follows the selected mode's current quadrature mix
+        self._syncing_morph = True
+        self._morph_slider.value = self._morph_factor(index)
+        self._syncing_morph = False
 
     def _on_view_change(self, attr: str, old: object, new: object) -> None:
         """

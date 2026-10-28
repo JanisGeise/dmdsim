@@ -87,6 +87,9 @@ GUI-independent and numpy-only; keep it that way.
   "25"). Document decimal points; do not "fix" without a client-side filter.
 - **MathText (LaTeX) only works in canvas text** (plot titles, axis labels) —
   widget titles are plain text; use Unicode subscripts (fₘᵢₙ, Δt, σₙₒᵢₛₑ).
+- **`TabPanel` titles are plain text too** — HTML entities render literally
+  ("Real &amp; imaginary" showed as-is); use plain characters ("Real &
+  imaginary").
 - **`Switch`/`Toggle`/`Button`/`CheckboxGroup` have no `description` property**
   (only InputWidgets: Spinner, Select, Slider, TextInput do). For click-?
   behavior on buttons use a standalone `Tooltip` with care (target resolution
@@ -129,8 +132,10 @@ GUI-independent and numpy-only; keep it that way.
   descriptive f-string messages, `_`-prefixed private attributes via
   `@property`, constants UPPER_SNAKE_CASE, every module ends with
   `if __name__ == "__main__": pass` (except declaration-only files).
-- **Commit policy:** commit only when the user declares a revision complete —
-  one commit per revision, never push (no remote configured).
+- **Commit policy:** commit only after an explicit go-ahead from the user for
+  that revision (e.g. "commit it", "go for it") — never commit proactively,
+  even when a revision looks finished or verified; ask or wait when unsure.
+  One commit per revision, never push (no remote configured).
 - **PLAN.md is untracked** (user preference) but kept updated locally.
 - **`ideas_for_review.txt`** (untracked, git-ignored): the user's running list
   of ideas/TODOs. **Check it at the start of every session for new or updated
