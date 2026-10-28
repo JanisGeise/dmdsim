@@ -153,13 +153,14 @@ the figure plus the data source (and extras where needed):
   returns `(figure, source, line_renderer)` (the app sets the line color per
   theme); 500×380 (y-range fixed by the app).
 - `create_time_curves_figure()` — time view with the field along space at the
-  current time: original (black), reconstruction (gray dashed), sum of selected
-  modes (gray dash-dot), selected eigenvalue contribution (thicker, pair color set by
-  the app via the returned renderer), and thin per-eigenvalue contribution
-  lines in pair colors (`MultiLine` + hover) for all checked eigenvalues;
-  returns `(figure, source, pair_source, selected_renderer, curve_renderers)`
-  with ``curve_renderers`` holding the theme-dependent reference lines;
-  1000×420.
+  current time (1150×420, plain `Range1d`): original (black), reconstruction
+  (gray dashed), sum of selected modes (gray dash-dot), selected eigenvalue
+  contribution (thicker, pair color set by the app via the returned
+  renderer), and thin per-eigenvalue contribution lines in their pair colors
+  (`MultiLine` + hover) for all checked eigenvalues; four-column horizontal
+  legend centered OUTSIDE the frame above the plot; returns
+  `(figure, source, pair_source, selected_renderer, curve_renderers)`
+  with ``curve_renderers`` holding the theme-dependent reference lines.
 
 Expected source columns are documented in each docstring; the app fills them in
 `_update_*` methods.
@@ -322,7 +323,13 @@ silences flowTorch's INFO logging at import time.
     "Im λ = … → eigenvalue above/below the real axis (f ≷ 0)"),
     `_update_mode_select` (resets selection before
     relabeling to avoid stale indices), `_update_time_view` (curves + per-
-    eigenvalue pair lines + selected-line color + λᵗ trail), `_update_readout`.
+    eigenvalue pair lines + selected-line color + λᵗ trail), `_update_readout`,
+    `_update_time_limits` (sizes the reconstruction view's fixed y-range from
+    the reconstruction and the original signal over ALL time levels —
+    constant under checkbox toggles and during playback; refreshed on refit
+    and eigenvalue-amplitude-morph edits). All app-managed figure ranges are
+    plain `Range1d` objects created in the builders (a bokeh `DataRange1d`
+    recomputes client-side and ignores the server's writes — see AGENTS.md).
   - `_reset_signal_parameters`: restores `_DEFAULT_SIGNAL_PARAMS` under the
     `_syncing_params` guard (change callbacks idle, mutual frequency bounds
     set explicitly), then one refit.

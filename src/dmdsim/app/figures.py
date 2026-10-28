@@ -430,7 +430,9 @@ def create_direction_figure(x_range: Range1d | None = None, height: int = 420,
                          title="traveling wave of the selected mode")
     if x_range is not None:
         options["x_range"] = x_range
-    fig = figure(**options)
+    # a plain Range1d: the application owns the envelope y-range (a DataRange1d
+    # would recompute it client-side and ignore the application's writes)
+    fig = figure(**options, y_range=Range1d(-1.0, 1.0))
     source = ColumnDataSource(dict(s=[], value=[], reference=[]))
     fig.line(x="s", y="reference", source=source, color="#8430ce", line_width=1.5,
              line_dash="dotted", line_alpha=0.35)
@@ -456,7 +458,10 @@ def create_signal_curve_figure() -> tuple[figure, ColumnDataSource]:
         and ``value``
     :rtype: tuple[figure, ColumnDataSource]
     """
-    fig = figure(width=500, height=380, title="signal at the current time")
+    # plain Range1d: the application owns the fixed y-range (a DataRange1d
+    # would recompute it client-side and ignore the application's writes)
+    fig = figure(width=500, height=380, title="signal at the current time",
+                 y_range=Range1d(-1.0, 1.0))
     source = ColumnDataSource(dict(s=[], value=[]))
     line_renderer = fig.line(x="s", y="value", source=source, color="#1a73e8",
                              line_width=2)
@@ -482,7 +487,10 @@ def create_time_curves_figure() -> tuple[figure, ColumnDataSource, ColumnDataSou
         application sets its glyph color)
     :rtype: tuple[figure, ColumnDataSource, ColumnDataSource, GlyphRenderer]
     """
-    fig = figure(width=1000, height=420, title="field at current time")
+    # plain Range1d: the application owns the fixed y-range (a DataRange1d
+    # would recompute it client-side and ignore the application's writes)
+    fig = figure(width=1150, height=420, title="field at current time",
+                 y_range=Range1d(-1.0, 1.0))
     source = ColumnDataSource(dict(s=[], original=[], reconstruction=[], selected=[],
                                    selection=[]))
     original_renderer = fig.line(x="s", y="original", source=source,
@@ -505,7 +513,11 @@ def create_time_curves_figure() -> tuple[figure, ColumnDataSource, ColumnDataSou
     fig.add_tools(HoverTool(renderers=[pair_renderer], line_policy="nearest",
                             tooltips=[("eigenvalue no.", "@index"),
                                       ("f", "@f{0.00} Hz")]))
-    fig.legend.location = "top_left"
+    # four-column legend, centered outside the frame above the plot
+    fig.legend.ncols = 4
+    fig.legend.orientation = "horizontal"
+    fig.legend.location = "center"
+    fig.add_layout(fig.legend[0], "above")
     fig.legend.click_policy = "hide"
     fig.xaxis.axis_label = "x"
     fig.yaxis.axis_label = "y"

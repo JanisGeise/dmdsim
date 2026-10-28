@@ -892,3 +892,82 @@ only), richer explanations later.
   "acceptable to show" (an intermediate "blocking" finding was the review
   prompt's wrong expectation about the tilt at f = 10 Hz — the shallow tilt
   is the correct physics).
+
+## M4d follow-up — panel 5: checkbox wrapping + reconstruction y-limits (2026-10-28)
+
+User report: with many modes active, panel 5 ran off the screen and the
+reconstruction plot's ylim was not adjusted.
+
+- **Checkbox wrapping**: the mode-selection `CheckboxGroup` (inline) now has
+  `width = 1000` and a stylesheet forcing `flex-wrap: wrap` on the inner
+  `.bk-input-group` container (the group's flex row previously did not wrap,
+  so 24 labels pushed the page ~1850 px beyond the viewport). With 24 modes
+  the labels wrap into three rows within the figure width (0 px horizontal
+  overflow, vision-verified).
+- **Reconstruction y-limits**: the fixed y-range of the reconstruction view
+  was sized from the ORIGINAL signal only (`_update_field_view`), so edits
+  (|b| scaling, eigenvalue drags with growth, morphs) could push curves
+  outside the frame. New `_update_time_limits()` sizes the range from the
+  reconstruction and the original signal over ALL time levels — per user
+  refinement it is based on the reconstruction and stays CONSTANT under
+  checkbox toggles (the checked selection sum and per-mode terms were
+  dropped; the original is included so silencing the reconstruction cannot
+  clip it). Refreshed on refit and eigenvalue/amplitude/morph edits — not
+  per animation tick. The signal view (panel 1) keeps its signal-sized
+  range.
+- Verification: pytest 15 passed; `run/verify_gui_polish.py` extended (12
+  signal modes → 24 checkboxes wrapped within the width; y-range matches the
+  analytic limit for all-checked and single-checked selections at |b| scale
+  2.0); vision review of panel 5 with 24 modes (default and amplified):
+  "acceptable to show" (checkboxes in three neat rows, y-range expanded
+  ~[-10, 10] → ~[-15, 15], no clipping).
+
+## M4d follow-up 3 — reconstruction view clipped at ±2: DataRange1d pitfall (2026-10-28)
+
+User report: with Nₘ = 20 and playback, the original and reconstruction
+curves went out of bounds in panel 5 (verified on the user's actual screen
+via a desktop screenshot: y ticks 2/0, curves clipped, mode 0 at
+f = −5.70 Hz, mode 39 at f = 15.48 Hz — the session had heavy eigenvalue
+editing history).
+
+- **Root cause**: the signal/reconstruction/wave figures were created WITHOUT
+  an explicit y-range, so bokeh assigned its auto-ranging `DataRange1d`. A
+  `DataRange1d` recomputes its limits CLIENT-side from the rendered data and
+  ignores/overrides server-side `.start`/`.end` writes — in the user's
+  long-lived browser session (which survived server restarts and many
+  edits) the client's computed range (±2) no longer matched the server's
+  data, so the curves clipped.
+- **Fix**: the three figures are now created with plain `Range1d` objects —
+  the application owns the limits and they reach the browser verbatim
+  (the same pattern the quadrature view's constant ruler already used).
+  Headless type check added to the regression script
+  (`type(fig.y_range) is Range1d` for all app-managed figures).
+- Process note: the first browser verification ran against a STALE debug
+  server holding port 5099 (my pattern-based pkill missed it; the new
+  server died with "Address already in use") — the measurements were from
+  old code. Killed by PID from `ss -ltnp`, re-verified on a fresh server:
+  `range_type Range1d`, reconstruction fits through |b| scale 2.0 and an
+  extreme growth drag (radius × 1.5 → range ±1e53, honest physics of the
+  exploding mode).
+- Pitfall documented in AGENTS.md (DataRange1d vs app-owned Range1d).
+- Verification: pytest 15 passed; `run/verify_gui_polish.py` all green under
+  `-W error::UserWarning`.
+
+## M4d follow-up 4 — reconstruction view: outside legend + tight margin (2026-10-28)
+
+User remarks on panel 5's "field at current time" plot: move the legend
+outside (same as panel 4) and decrease the y-range margin.
+
+- The four-entry legend ("original", "reconstruction", "sum of selected
+  modes", "selected eigenvalue") is now a four-column horizontal legend
+  centered OUTSIDE the frame above the plot (`ncols = 4` +
+  `add_layout(..., "above")` — the same pattern as the quadrature view).
+  The plot was widened 1000 → 1150 px so the four long labels fit in ONE row
+  (at 1000 px bokeh wrapped them 2+2).
+- The y-range margin was tightened 1.1 → 1.05: the reconstruction uses the
+  plot height better while playback stays inside (the range is sized by the
+  global maximum over all time levels).
+- Verification: pytest 15 passed; `run/verify_gui_polish.py` updated (margin
+  1.05, legend-outside assertion); vision review with |b| scale 2.0:
+  "acceptable to show" — one-row legend above the frame, curves fill the
+  height without clipping.

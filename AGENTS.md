@@ -90,6 +90,14 @@ GUI-independent and numpy-only; keep it that way.
 - **`TabPanel` titles are plain text too** — HTML entities render literally
   ("Real &amp; imaginary" showed as-is); use plain characters ("Real &
   imaginary").
+- **Figures get a `DataRange1d` unless given an explicit `Range1d`** — a
+  `DataRange1d` recomputes its limits client-side from the rendered data and
+  **ignores/overrides server-side `.start`/`.end` writes** in long-lived
+  sessions (stale client state across server restarts made the reconstruction
+  view clip at ±2 while the server computed correct limits). Any figure whose
+  limits the app manages must be created with a plain `Range1d`; the app then
+  owns the limits and they reach the browser verbatim. Check with
+  `type(fig.y_range).__name__ == "Range1d"` in the regression script.
 - **`Switch`/`Toggle`/`Button`/`CheckboxGroup` have no `description` property**
   (only InputWidgets: Spinner, Select, Slider, TextInput do). For click-?
   behavior on buttons use a standalone `Tooltip` with care (target resolution

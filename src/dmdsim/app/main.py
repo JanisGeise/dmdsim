@@ -312,7 +312,10 @@ class DMDPlayground:
         self._signal_time_slider = Slider(title="t [s]", start=0, end=2.99, value=0,
                                           step=0.01, width=300)
         self._signal_play_toggle = Toggle(label="▶ play", active=False, width=100)
-        self._mode_select = CheckboxGroup(labels=[], active=[], inline=True)
+        self._mode_select = CheckboxGroup(
+            labels=[], active=[], inline=True, width=1000,
+            stylesheets=[InlineStyleSheet(
+                css=".bk-input-group { flex-wrap: wrap; }")])
         self._sort_select = Select(title="sort modes by", value="integral",
                                    options=[("integral", "integral contribution"),
                                             ("amplitude", "amplitude |b|"),
@@ -864,6 +867,7 @@ class DMDPlayground:
         self._update_quantities()
         self._update_mode_view()
         self._update_mode_select()
+        self._update_time_limits()
         error = float(np.abs(self._reconstruction - signal.samples).max())
         # only the automatic rank and the error are shown; an explicitly set rank
         # is known to the user already
@@ -936,6 +940,7 @@ class DMDPlayground:
         # the shape views must follow the restored modes (the morph edits them
         # in place; the reselect path refreshes them via the view callbacks)
         self._update_mode_view()
+        self._update_time_limits()
         if reselect:
             # restoring the selection fires the view callbacks (time view incl.)
             self._update_mode_select()
@@ -1033,8 +1038,8 @@ class DMDPlayground:
 
     def _update_field_view(self) -> None:
         """
-        Update the fixed y-ranges of the animated line plots (signal and
-        reconstruction views) so playback never rescales.
+        Update the fixed y-range of the animated signal view so playback never
+        rescales.
 
         :return: None
         :rtype: None
@@ -1044,9 +1049,32 @@ class DMDPlayground:
         # fixed y-range so the animated signal line does not rescale every step
         self._signal_figure.y_range.start = -1.1 * vmax
         self._signal_figure.y_range.end = 1.1 * vmax
-        # the reconstruction view shows subsets of the signal, the same range fits
-        self._time_figure.y_range.start = -1.1 * vmax
-        self._time_figure.y_range.end = 1.1 * vmax
+
+    def _update_time_limits(self) -> None:
+        """
+        Size the fixed y-range of the reconstruction view from the
+        reconstruction and the original signal.
+
+        Both curves are drawn in the view over all time levels, and both only
+        change when the quantities are edited (refit, |b| scaling, eigenvalue
+        or morph edits) — the range is therefore constant under checkbox
+        toggles and during playback.
+
+        :return: None
+        :rtype: None
+        """
+        signal = self._signal
+        result = self._result
+        if signal is None or result is None or result.n_modes == 0:
+            return
+        vmax = max(float(np.abs(signal.samples).max()), 1e-12)
+        if self._reconstruction is not None:
+            vmax = max(vmax, float(np.abs(self._reconstruction).max()))
+        # a tight margin: the reconstruction should use the frame (the user
+        # found 1.1 too generous); playback stays inside since the range is
+        # sized by the global maximum over all time levels
+        self._time_figure.y_range.start = -1.05 * vmax
+        self._time_figure.y_range.end = 1.05 * vmax
 
     def _update_quantities(self) -> None:
         """
@@ -1659,6 +1687,7 @@ class DMDPlayground:
         self._status_div.text = f"edited — max deviation from the original: {error:.1e}"
         self._update_spectrum()
         self._update_space_time_view()
+        self._update_time_limits()
         self._update_time_view()
 
     def _on_amplitude_change(self, attr: str, old: object, new: object) -> None:
@@ -1702,6 +1731,7 @@ class DMDPlayground:
         self._status_div.text = f"edited — max deviation from the original: {error:.1e}"
         self._update_spectrum()
         self._update_space_time_view()
+        self._update_time_limits()
         self._update_time_view()
 
     def _morph_factor(self, index: int) -> float:
@@ -1761,6 +1791,7 @@ class DMDPlayground:
         self._update_mode_view()
         self._update_spectrum()
         self._update_space_time_view()
+        self._update_time_limits()
         self._update_time_view()
         error = float(np.abs(self._reconstruction - self._signal.samples).max())
         self._status_div.text = f"edited — max deviation from the original: {error:.1e}"
