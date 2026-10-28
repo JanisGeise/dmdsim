@@ -3,7 +3,10 @@
 For transparency:
 
 > **Note:** This project is vibe coded — it is developed end-to-end in an
-> AI-assisted workflow (human direction and review, AI implementation).
+> AI-assisted workflow (human direction and review, AI implementation) using
+> [OpenCode](https://opencode.ai) with models provided by
+> [ScaDS.AI](https://llm.scads.ai) (GLM-5.3-Flash for coding, alias-vision for
+> GUI screenshot review).
 
 Interactive playground for building synthetic modal line fields, decomposing them
 with Dynamic Mode Decomposition (DMD), and visually exploring all DMD quantities
