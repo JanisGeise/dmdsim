@@ -848,3 +848,47 @@ plot. The quadrature figure's legend is now laid out horizontally with
 Verification: pytest 15 passed; headless verify green; vision review
 ("acceptable to show": legend above the frame, three entries side by side,
 no curve overlap, 0 px overflow).
+
+## M4d — space-time heatmap (the space/time phase decoupling, visualized) (2026-10-28)
+
+User-flagged confusing point: arg(λ) = 2πf·Δt is a phase rotation per time
+step (temporal), arg(φ) = κx + θ₀ is the spatial phase — dragging an
+eigenvalue changes the animation speed and c = −2πf/κ but never the shape or
+wavelength. Planned via brainstorm (options: x–t heatmap, snapshot trail,
+dispersion tie, phase dial); user picked the heatmap first (selected mode
+only), richer explanations later.
+
+- New **"Space–time" sub-tab** in panel 4: heatmap of the selected mode's
+  contribution Re{φ·b·λᵗ} over x (horizontal) and t (vertical, time
+  increasing upward), diverging blue-white-red color map with color bar.
+  The lesson: horizontal stripe spacing = wavelength λ_w = 2π/κ (a property
+  of the SHAPE), vertical spacing = temporal period T = 1/f (a property of
+  the EIGENVALUE), stripe slope = propagation speed c = −λ_w/T — the
+  decoupling as two independent spacings.
+- `create_space_time_figure(x_range=None, height=420, width=615)` with a
+  smooth diverging palette (`_SPACE_TIME_PALETTE`, interpolated from bokeh's
+  `RdBu[11]` to 256 entries) and a `ColorBar`; returns
+  `(figure, source, mapper)`.
+- Glyph orientation: bokeh's Image glyph renders array row 0 at the TOP and
+  anchors at the bottom-left — the app stores the TIME-FLIPPED field
+  (rows = time, columns = space) plus the vertical extent in the source
+  (columns ``field``/``dh``) and updates the mapper's symmetric limits and
+  the y-range per refresh.
+- `_update_space_time_view`: refreshed only when its inputs change —
+  `_update_mode_view` (refit/sort/mode switch/morph/reset) plus explicit
+  calls in `_on_eigenvalue_drag` and `_on_amplitude_change` — deliberately
+  NOT per animation tick (the heatmap shows all times and does not depend
+  on the time cursor).
+- Physics note verified in-browser: the default mode (f = 10 Hz) shows
+  nearly horizontal stripes — correct, the wave crosses the 1-unit domain
+  ~3.3 times per second; dragging the eigenvalue down to 1 Hz unfolds
+  clearly diagonal bottom-left→top-right stripes (3 temporal periods over
+  3 wavelengths). Vertical density changes with f, horizontal spacing with
+  the shape — the decoupling at a glance.
+- Verification: pytest 15 passed; `run/verify_gui_polish.py` extended (field
+  shape and analytic match at t = 0/50/last with the time flip, symmetric
+  mapper limits, t-range, refresh on eigenvalue edits, standing degeneration
+  into vertical stripes); vision review of fast and slow captures:
+  "acceptable to show" (an intermediate "blocking" finding was the review
+  prompt's wrong expectation about the tilt at f = 10 Hz — the shallow tilt
+  is the correct physics).

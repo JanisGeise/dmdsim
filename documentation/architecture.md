@@ -60,7 +60,11 @@ Re + Im + faded fitted-Im reference in one axes, and the traveling wave;
 615×340 each, synced x-zoom, one constant y-ruler sized by the fit), the
 wave animation with the direction arrow (length ∝ t·|c|, i.e. the net
 propagation, hidden for standing waves) and the readout below, all live
-under the morph slider — / Phase),
+under the morph slider — / Phase — / Space–time (heatmap of the selected
+mode's contribution over x and t, time increasing upward: horizontal stripe
+spacing = wavelength 2π/κ from the shape, vertical spacing = temporal period
+1/f from the eigenvalue, stripe slope = propagation speed; diverging
+blue-white-red color map with color bar)),
 and **5 · Reconstruction**. All panels stay alive while hidden, so widget state
 survives tab switching. Four time sliders and play toggles (panels 1, 2, 4, 5)
 are two-way synchronized and drive one shared time cursor. Every panel carries

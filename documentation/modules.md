@@ -116,6 +116,18 @@ the figure plus the data source (and extras where needed):
   "above")`); source columns ``s``, ``real``, ``imag``, and ``reference``;
   the app groups it with the wave view (615×340, shared x-range, constant
   shared y-ruler).
+- `create_space_time_figure(x_range=None, height=420, width=615)` —
+  space-time heatmap of the selected mode's contribution
+  :math:`\Re\{\phi b \lambda^t\}` over x (horizontal) and t (vertical, time
+  increasing upward) with a smooth diverging blue-white-red color map
+  (`_SPACE_TIME_PALETTE`, interpolated from bokeh's ``RdBu``) and a color
+  bar; returns `(figure, source, mapper)` — the app stores the TIME-FLIPPED
+  field (the image glyph renders array row 0 at the top) plus the vertical
+  extent (``dh``) in the source (columns ``field`` and ``dh``) and updates
+  the mapper's symmetric limits from the field maximum; the view is
+  refreshed only when its inputs change (refit/sort/mode switch/morph/
+  eigenvalue or amplitude edits), not per animation tick.
+
 - `create_mode_component_figure(quantity, x_range=None, y_range=None,
   height=420, width=1000)` — single-quantity mode shape figure; currently
   only used for ``quantity = "phase"`` (unwrapped phase line + wrapped ±π
@@ -298,8 +310,13 @@ silences flowTorch's INFO logging at import time.
     axis, growth-direction plane σ over phase velocity c = −2πf/κ with
     data-driven axis ranges),
     `_update_mode_slider`/`_update_time_slider` (bounds + clamping of
-    the synced sliders), `_update_mode_view` (fills the three single-quantity
-    mode sources incl. unwrapped phase), `_update_direction_view` (traveling
+    the synced sliders), `_update_mode_view` (fills the quadrature and phase
+    sources incl. the fitted references, sizes the constant quadrature
+    y-ruler, and refreshes the space-time view), `_update_space_time_view`
+    (heatmap of the selected mode's contribution over x and t with symmetric
+    color limits; refreshed on refit/sort/mode switch/morph/eigenvalue and
+    amplitude edits — not per animation tick),
+    `_update_direction_view` (traveling
     wave at the current time, fixed envelope y-range, direction arrow, and the
     κ/λ_w/c readout incl. the eigenvalue-side line
     "Im λ = … → eigenvalue above/below the real axis (f ≷ 0)"),

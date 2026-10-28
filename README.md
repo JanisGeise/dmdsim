@@ -56,22 +56,37 @@ jumping to the five step panels:
 
 - **1 · Signal** — design the synthetic signal (number of modes Nₘ, frequency
   range fₘᵢₙ–fₘₐₓ, offset, optional seeded noise) and run the DMD fit
-  (rank 0 = automatic; auto-rerun refits on every change). The signal animation
-  plays the created waves on the fixed window x ∈ [0, 1].
+  (rank 0 = automatic; auto-rerun refits on every change; "↺ reset parameters"
+  restores the defaults). The signal animation plays the created waves on the
+  fixed window x ∈ [0, 1].
 - **2 · Eigenvalues** — the fitted eigenvalues around the unit circle
-  (radius = growth/decay, angle = frequency). **Drag them**: the conjugate
-  partner mirrors automatically and the reconstruction updates live
-  (|λ| = 1 keeps modes neutral via the "lock to unit circle" toggle; the |b|
-  scale spinner amplifies or silences the selected mode). The λᵗ dynamics plot
-  shows the selected mode's spiral animated in time.
-- **3 · Spectrum** — each mode's amplitude over frequency; conjugate pairs share
-  their color; dashed lines mark the Nyquist limits.
-- **4 · Mode shapes** — Re/Im/Phase of each mode (unwrapped phase explained) and
-  the propagation direction with an animated traveling wave, wavelength, and
-  phase velocity.
+  (radius = growth/decay, angle = frequency; shaded half planes mark the
+  frequency sign). **Drag them**: the conjugate partner mirrors automatically
+  and the reconstruction updates live (|λ| = 1 keeps modes neutral via the
+  "lock to unit circle" toggle; the |b| scale spinner amplifies or silences
+  the selected mode). Small triangles above each eigenvalue point in the
+  wave's travel direction and flip when an eigenvalue crosses the real axis.
+  The λᵗ dynamics plot shows the selected mode's spiral animated in time.
+- **3 · Spectrum** — each mode's amplitude over frequency (left) and the
+  growth-direction plane, growth rate σ over signed phase velocity
+  c = −2πf/κ (right): above the zero line the wave travels toward +x, below
+  toward −x. Conjugate pairs share their color; dashed lines mark the Nyquist
+  limits.
+- **4 · Mode shapes** — the quadrature view shows Re(φ) and Im(φ) in one axes
+  (with the fitted ghost), so the quarter-wavelength offset between the
+  quadratures — their spatial phase relation — is directly visible. The
+  "standing ←→ traveling" slider morphs the mode between a pure standing
+  pattern and the fitted traveling wave (a standing wave is two equal
+  opposite-traveling waves; the readout reports the split). The traveling
+  wave is animated next to it with a direction arrow whose length follows
+  the net propagation. The phase sub-tab explains the wrapped arg(φ).
 - **5 · Reconstruction** — the rebuild vs the original: uncheck eigenvalues to
   see each mode's contribution (thin lines in pair colors) and how the
   reconstruction changes.
+
+Every panel carries a **↺ reset button**: panel 1 restores the default signal
+parameters (and refits), panels 2–5 restore the fitted DMD values, undoing
+all edits made in the playground.
 
 A **light/dark theme** switch sits in the application bar. Inline hints under
 the plots explain each quantity; every parameter has a "?" tooltip with meaning
@@ -144,8 +159,13 @@ implementation step: `architecture.md` (layers, data flow, design decisions),
 
 ## Roadmap
 
-See `PLAN.md` for the full roadmap and status. Core library (M1) and the Bokeh
-GUI (M2) are implemented — the project is currently in the **GUI revise phase**
-(panel-by-panel polish driven by user feedback and vision-based screenshot
-reviews). Next: interactive eigenvalue dragging (M3), 2D OpenFOAM support via
-flowTorch (M5, deferred).
+See `PLAN.md` for the full roadmap and status. Done: the core library (M1), the
+Bokeh GUI (M2), the GUI revise phase (M2R), interactive eigenvalue editing (M3),
+the UX revision (M4: start panel, light/dark themes, beginner labels), the GUI
+polish round (M4b: per-panel resets, growth-direction plane, travel-direction
+triangles), and the first teaching-concept feature (M4c: the traveling↔standing
+morph with the combined quadrature view). Next candidates (teaching concepts):
+arg(b) phasor editing, phase-slope (κ) editing, an x–t heatmap, a singular-value
+scree plot, guided scenario presets, and a manual signal composition — plus the
+deferred backlog (2D OpenFOAM support via flowTorch (M5), dark-mode completion,
+DMD variants, session save/load).

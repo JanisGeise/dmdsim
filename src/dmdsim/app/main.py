@@ -27,8 +27,8 @@ from dmdsim.app.figures import (create_direction_figure, create_eigenvalue_figur
                                 create_mode_component_figure,
                                 create_mode_dynamics_figure,
                                 create_quadrature_figure,
-                                create_signal_curve_figure, create_spectrum_figure,
-                                create_time_curves_figure)
+                                create_signal_curve_figure, create_space_time_figure,
+                                create_spectrum_figure, create_time_curves_figure)
 from dmdsim.app.styling import (PAIR_PALETTE, PAIR_PALETTE_DARK, THEMES, header,
                                 header_styles, halfplane_colors, hint, hint_styles,
                                 info_box, info_styles, page_css, step_colors,
@@ -119,6 +119,16 @@ _HINT_IMAG = ("Imaginary part of the mode shape φ(s); real and imaginary part "
 _HINT_PHASE = ("The phase arg(φ) is only defined modulo 2π, so it wraps at ±π "
                "(faded points). The unwrapped line is continuous: its slope is the "
                "wavenumber κ and its offset is the spatial phase shift of the wave.")
+_HINT_SPACETIME = ("The contribution Re{φ·b·λᵗ} of the selected mode over space "
+                   "(x) and time (t): the horizontal stripe spacing is the "
+                   "wavelength λ_w = 2π/κ — a property of the shape; the vertical "
+                   "spacing is the temporal period T = 1/f — a property of the "
+                   "eigenvalue; the stripe slope is the propagation speed "
+                   "c = −λ_w/T. Editing the eigenvalue rescales the vertical "
+                   "spacing and the slope while the horizontal spacing stays "
+                   "frozen; the 'standing ←→ traveling' slider changes the "
+                   "horizontal spacing. At t = 0 the pattern degenerates to "
+                   "vertical stripes (standing).")
 _HINT_DIRECTION = ("The wave contribution Re{φ·b·λᵗ} of the selected mode, animated "
                    "with the time cursor: watch it travel. The arrow shows the "
                    "propagation direction; the info box derives the wavenumber κ, "
@@ -375,6 +385,8 @@ class DMDPlayground:
          self._selected_renderer, self._curve_renderers) = create_time_curves_figure()
         # the phase view keeps its own sub-tab (1000 px wide)
         self._phase_figure, self._phase_source = create_mode_component_figure("phase")
+        self._space_time_figure, self._space_time_source, self._space_time_mapper = \
+            create_space_time_figure(x_range=shape_x_range, height=420, width=615)
         # register figures with their step colors for theming
         self._styled_figures = [
             (self._eigenvalue_figure, "eigenvalues"),
@@ -386,6 +398,7 @@ class DMDPlayground:
             (self._quadrature_figure, "modes"),
             (self._direction_figure, "modes"),
             (self._phase_figure, "modes"),
+            (self._space_time_figure, "modes"),
         ]
 
     def _build_layout(self) -> None:
@@ -536,6 +549,10 @@ class DMDPlayground:
             TabPanel(child=column(self._phase_figure,
                                   self._themed_hint(_HINT_PHASE, width=1000), spacing=8),
                      title="Phase"),
+            TabPanel(child=column(self._space_time_figure,
+                                  self._themed_hint(_HINT_SPACETIME, width=1000),
+                                  spacing=8),
+                     title="Space–time"),
         ], tabs_location="above",
             stylesheets=[self._mode_tab_sheet])
         self._mode_tabs = mode_tabs
@@ -1285,6 +1302,43 @@ class DMDPlayground:
                        1e-12)
             self._shape_y_range.start = -1.1 * vmax
             self._shape_y_range.end = 1.1 * vmax
+        self._update_space_time_view()
+
+    def _update_space_time_view(self) -> None:
+        """
+        Update the space-time heatmap of the selected mode's contribution.
+
+        The heatmap shows :math:`\\Re\\{\\phi b \\lambda^t\\}` for all time
+        levels at once: the horizontal stripe spacing is the wavelength
+        :math:`2\\pi/\\kappa` (a property of the shape), the vertical spacing
+        the temporal period :math:`1/f` (a property of the eigenvalue), and
+        the stripe slope the propagation speed. The color limits are
+        symmetric around zero and sized by the field. The view is refreshed
+        only when its inputs change (refit, sort, mode switch, morph,
+        eigenvalue or amplitude edits) — not per animation tick, since it
+        shows all times and does not depend on the time cursor.
+
+        :return: None
+        :rtype: None
+        """
+        result = self._result
+        signal = self._signal
+        if result is None or result.n_modes == 0 or signal is None:
+            self._space_time_source.data = dict(field=[], dh=[])
+            return
+        index = min(int(self._mode_slider.value), result.n_modes - 1)
+        t_values = np.arange(signal.n_time)
+        dynamics = result.amplitudes[index] * result.eigvals[index] ** t_values
+        # the image glyph expects rows = vertical (time, height) and columns =
+        # horizontal (space, width), with row 0 rendered at the top: build
+        # F[t, x] and store it time-flipped so time increases upward
+        field = np.real(result.mode(index)[None, :] * dynamics[:, None])[::-1, :]
+        t_max = (signal.n_time - 1) * signal.dt
+        vmax = max(float(np.abs(field).max()), 1e-12)
+        self._space_time_mapper.low = -vmax
+        self._space_time_mapper.high = vmax
+        self._space_time_figure.y_range.end = t_max
+        self._space_time_source.data = dict(field=[field], dh=[t_max])
 
     def _update_direction_view(self) -> None:
         """
@@ -1604,6 +1658,7 @@ class DMDPlayground:
         error = float(np.abs(self._reconstruction - self._signal.samples).max())
         self._status_div.text = f"edited — max deviation from the original: {error:.1e}"
         self._update_spectrum()
+        self._update_space_time_view()
         self._update_time_view()
 
     def _on_amplitude_change(self, attr: str, old: object, new: object) -> None:
@@ -1646,6 +1701,7 @@ class DMDPlayground:
         error = float(np.abs(self._reconstruction - self._signal.samples).max())
         self._status_div.text = f"edited — max deviation from the original: {error:.1e}"
         self._update_spectrum()
+        self._update_space_time_view()
         self._update_time_view()
 
     def _morph_factor(self, index: int) -> float:
@@ -1704,6 +1760,7 @@ class DMDPlayground:
                                           self._signal.n_time)
         self._update_mode_view()
         self._update_spectrum()
+        self._update_space_time_view()
         self._update_time_view()
         error = float(np.abs(self._reconstruction - self._signal.samples).max())
         self._status_div.text = f"edited — max deviation from the original: {error:.1e}"

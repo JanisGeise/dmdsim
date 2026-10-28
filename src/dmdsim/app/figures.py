@@ -3,9 +3,11 @@
 """
 import numpy as np
 
+from bokeh.palettes import RdBu
 from bokeh.plotting import figure
-from bokeh.models import (Span, Arrow, Label, Range1d, HoverTool, NormalHead,
-                          GlyphRenderer, PointDrawTool, ColumnDataSource)
+from bokeh.models import (Span, Arrow, Label, Range1d, ColorBar, HoverTool,
+                          NormalHead, GlyphRenderer, PointDrawTool,
+                          ColumnDataSource, LinearColorMapper)
 
 from dmdsim.app.styling import halfplane_colors
 
@@ -329,6 +331,77 @@ def create_quadrature_figure(x_range: Range1d | None = None,
     fig.xaxis.axis_label = "x"
     fig.yaxis.axis_label = "φ quadratures"
     return fig, source
+
+
+def _diverging_palette(steps: int = 256) -> list[str]:
+    """
+    Build a smooth diverging blue-white-red palette by interpolating the
+    bokeh ``RdBu`` palette.
+
+    :param steps: number of palette entries
+    :type steps: int
+    :return: ``steps`` hex colors from dark blue over white to dark red
+    :rtype: list[str]
+    """
+    base = list(RdBu[11])
+    anchors = np.array([[int(color[i:i + 2], 16) for i in (1, 3, 5)]
+                        for color in base], dtype=np.float64)
+    positions = np.linspace(0.0, 1.0, len(base))
+    targets = np.linspace(0.0, 1.0, steps)
+    channels = [np.interp(targets, positions, anchors[:, channel])
+                for channel in range(3)]
+    return [f"#{int(red):02x}{int(green):02x}{int(blue):02x}"
+            for red, green, blue in zip(*[np.round(channel).astype(int)
+                                          for channel in channels])]
+
+
+_SPACE_TIME_PALETTE = _diverging_palette()
+
+
+def create_space_time_figure(x_range: Range1d | None = None, height: int = 420,
+                             width: int = 615) -> tuple[figure, ColumnDataSource,
+                                                        LinearColorMapper]:
+    """
+    Create the space-time heatmap of the selected mode's contribution.
+
+    Draws :math:`\\Re\\{\\phi b \\lambda^t\\}` over space (x, horizontal) and
+    time (t, vertical, increasing upward) with a diverging color map and a
+    color bar. The horizontal stripe spacing is the wavelength
+    :math:`2\\pi/\\kappa` (a property of the shape), the vertical spacing the
+    temporal period :math:`1/f` (a property of the eigenvalue), and the stripe
+    slope the propagation speed — the decoupling of the two phases is visible
+    as two independent spacings.
+
+    .. note::
+        The image glyph renders array row 0 at the top of the frame, so the
+        application stores the time-flipped field to keep time increasing
+        upward.
+
+    :param x_range: shared x-range for grouping the shape figures with synced
+        axes, defaults to None (auto range)
+    :type x_range: Range1d | None, optional
+    :param height: figure height in pixels, defaults to 420
+    :type height: int
+    :param width: figure width in pixels, defaults to 615
+    :type width: int
+    :return: figure, the data source (columns ``field`` and ``dh``; the app
+        stores the time-flipped field and the vertical extent), and the color
+        mapper (the app updates its symmetric limits)
+    :rtype: tuple[figure, ColumnDataSource, LinearColorMapper]
+    """
+    options: dict = dict(width=width, height=height,
+                         title="space–time map of the selected mode")
+    if x_range is not None:
+        options["x_range"] = x_range
+    fig = figure(**options, y_range=Range1d(0.0, 3.0))
+    mapper = LinearColorMapper(palette=_SPACE_TIME_PALETTE, low=-1.0, high=1.0)
+    source = ColumnDataSource(dict(field=[], dh=[]))
+    fig.image(image="field", x=0.0, y=0.0, dw=1.0, dh="dh", color_mapper=mapper,
+              source=source)
+    fig.add_layout(ColorBar(color_mapper=mapper), "right")
+    fig.xaxis.axis_label = "x"
+    fig.yaxis.axis_label = "t [s]"
+    return fig, source, mapper
 
 
 def create_direction_figure(x_range: Range1d | None = None, height: int = 420,

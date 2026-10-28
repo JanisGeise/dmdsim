@@ -13,5 +13,6 @@ modules change, and every step appends a dated entry to `steps.md`.
   and why
 
 Complementary documents in the repository root: `PLAN.md` (roadmap and milestone
-status), `README.md` (setup, usage, running the GUI), and `run/reports/` (code
-review findings per session, untracked).
+status), `README.md` (setup, usage, running the GUI), `AGENTS.md` (working rules
+for AI coding agents — project-specific pitfalls and conventions), and
+`run/reports/` (code review findings per session, untracked).
