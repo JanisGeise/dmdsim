@@ -198,6 +198,33 @@ class ModalSignal:
             field = field + rng.normal(0.0, self.noise_std, field.shape)
         return field
 
+    def evaluate_clean(self, t_values: np.ndarray) -> np.ndarray:
+        """
+        Evaluate the clean modal superposition at arbitrary time values.
+
+        The field reads :math:`x(s, t) = o + \\sum_i A_i \\exp(\\sigma_i t)
+        \\cos(\\kappa_i s - 2\\pi f_i t + \\phi_i)` — the same formula as the
+        stored samples but without the noise realization, evaluated at the given
+        (possibly non-grid or beyond-the-window) time values. This is the ground
+        truth the DMD prediction can be compared against: the noise of future
+        snapshots is unpredictable by definition, the clean continuation of the
+        physics is not.
+
+        :param t_values: time values to evaluate the field at, shape ``(n_values,)``
+        :type t_values: np.ndarray
+        :return: clean field values with one snapshot per column, shape ``(n_space, n_values)``
+        :rtype: np.ndarray
+        """
+        t_values = np.asarray(t_values, dtype=np.float64)
+        space = self.space[:, None]
+        time = t_values[None, :]
+        field = np.full((self.n_space, t_values.size), self.offset)
+        for mode in self.modes:
+            omega = 2.0 * np.pi * mode.frequency
+            field += (mode.amplitude * np.exp(mode.growth_rate * time)
+                      * np.cos(mode.wavenumber * space - omega * time + mode.phase))
+        return field
+
     @property
     def space(self) -> np.ndarray:
         """

@@ -6,7 +6,9 @@ For transparency:
 > AI-assisted workflow (human direction and review, AI implementation) using
 > [OpenCode](https://opencode.ai) with models provided by
 > [ScaDS.AI](https://llm.scads.ai) (GLM-5.3-Flash for coding, alias-vision for
-> GUI screenshot review).
+> GUI screenshot review); the ScaDS.AI access is provided via
+> [TU Dresden](https://tu-dresden.de), where the project is developed as
+> teaching material for the ML-CFD course.
 
 Interactive playground for building synthetic modal line fields, decomposing them
 with Dynamic Mode Decomposition (DMD), and visually exploring all DMD quantities
@@ -52,7 +54,7 @@ python3 -m venv .venv
 The app opens on the **Start** panel: a "DMD in a nutshell" recap of the lecture
 concepts (snapshot matrix X → time-shifted X′ → SVD → eigenvalue problem → modes
 φ, amplitudes b, eigenvalues λ → reconstruction) and a workflow list with buttons
-jumping to the five step panels:
+jumping to the six step panels:
 
 - **1 · Signal** — design the synthetic signal (number of modes Nₘ, frequency
   range fₘᵢₙ–fₘₐₓ, offset, optional seeded noise) and run the DMD fit
@@ -63,10 +65,11 @@ jumping to the five step panels:
   (radius = growth/decay, angle = frequency; shaded half planes mark the
   frequency sign). **Drag them**: the conjugate partner mirrors automatically
   and the reconstruction updates live (|λ| = 1 keeps modes neutral via the
-  "lock to unit circle" toggle; the |b| scale spinner amplifies or silences
-  the selected mode). Small triangles above each eigenvalue point in the
-  wave's travel direction and flip when an eigenvalue crosses the real axis.
-  The λᵗ dynamics plot shows the selected mode's spiral animated in time.
+  "lock to unit circle" toggle; the |b| gain spinner adds an extra
+  amplification of the selected mode on top of its panel-5 weight). Small
+  triangles above each eigenvalue point in the wave's travel direction and
+  flip when an eigenvalue crosses the real axis. The λᵗ dynamics plot shows
+  the selected mode's spiral animated in time.
 - **3 · Spectrum** — each mode's amplitude over frequency (left) and the
   growth-direction plane, growth rate σ over signed phase velocity
   c = −2πf/κ (right): above the zero line the wave travels toward +x, below
@@ -80,18 +83,34 @@ jumping to the five step panels:
   opposite-traveling waves; the readout reports the split). The traveling
   wave is animated next to it with a direction arrow whose length follows
   the net propagation. The phase sub-tab explains the wrapped arg(φ).
-- **5 · Reconstruction** — the rebuild vs the original: uncheck eigenvalues to
-  see each mode's contribution (thin lines in pair colors) and how the
-  reconstruction changes.
+- **5 · Reconstruction** — the rebuild vs the original: blend each eigenvalue's
+  contribution continuously with a weight slider (0 = silenced, 1 = as
+  fitted; conjugate pairs share one slider box and move together) and watch
+  the reconstruction and the thin per-mode contribution lines respond.
+- **6 · Prediction** — the same model formula advanced beyond the data window:
+  the probe-point time series shows the original data ending at the dashed
+  boundary while the model curve continues seamlessly from the reconstruction
+  into the prediction, compared against the clean continuation of the signal
+  (future noise is unpredictable by definition); the reconstruction part is
+  shaded and labeled ("reconstruction" / "prediction") so data and forecast
+  stay distinguishable, the static frame already peeks a little into the
+  prediction, and the time axis starts sliding (peek always ahead of the
+  cursor) once the prediction begins. The error curve below (same time axis)
+  shows how growing eigenvalues (|λ| > 1) amplify the prediction error while
+  decaying ones keep it bounded. The "prediction steps" box sets how many
+  time levels the model is advanced (the slider end follows), the probe point
+  is adjustable, and the play button sweeps the cursor up to the end time as
+  in the other animations.
 
 Every panel carries a **↺ reset button**: panel 1 restores the default signal
-parameters (and refits), panels 2–5 restore the fitted DMD values, undoing
+parameters (and refits), panels 2–6 restore the fitted DMD values, undoing
 all edits made in the playground.
 
 A **light/dark theme** switch sits in the application bar. Inline hints under
 the plots explain each quantity; every parameter has a "?" tooltip with meaning
-and allowed range. All time sliders and play buttons across the panels drive
-the same shared time cursor.
+and allowed range. The time sliders and play buttons of panels 1–5 drive the
+same shared time cursor; the prediction panel (6) has its own independent
+cursor that reaches beyond the data window.
 
 The `dmdsim-app` server stops itself automatically about two seconds after the last
 browser tab or window is closed. The manual `bokeh serve` variant keeps running until
@@ -161,8 +180,9 @@ GPL-3.0 licensed as well.
 ## Internal documentation
 
 `documentation/` documents the internals for developers and is updated with every
-implementation step: `architecture.md` (layers, data flow, design decisions),
-`modules.md` (module-by-module reference), and `steps.md` (chronological log).
+implementation step: `architecture.md` (layers, data flow, design decisions) and
+`modules.md` (module-by-module reference). The chronological step log `steps.md`
+is kept locally only (untracked).
 
 ## Roadmap
 

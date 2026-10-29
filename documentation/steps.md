@@ -1018,3 +1018,188 @@ public later):
 - **Access**: dedicated ed25519 SSH key (`~/.ssh/github`) plus a minimal
   `~/.ssh/config` `Host github.com` block; the empty private repository is
   created in the browser (no API token needed), then `main` is pushed.
+
+## Repo hygiene per ideas review (2026-10-28)
+
+- **`steps.md` untracked**: `documentation/steps.md` removed from git tracking
+  (`git rm --cached`, file kept locally) and added to `.gitignore` — the
+  chronological step log stays internal and is no longer part of the published
+  repository. References updated: README "Internal documentation" section,
+  `documentation/README.md` (marked locally only), and `AGENTS.md` (marks
+  `steps.md` as untracked).
+- **TU Dresden affiliation**: the README transparency note now names the
+  affiliation — the project is developed at TU Dresden as teaching material for
+  the ML-CFD course, and the ScaDS.AI model access is provided via TU Dresden
+  (per decision: the note is sufficient, no separate affiliation section;
+  ScaDS.AI is credited in the README, no repository-permission changes).
+- **Personal-information audit** of the published repository: the history
+  contains only the currently tracked files (the earlier `.idea/workspace.xml`
+  leak was already scrubbed in the git-filter-repo pass); no emails, personal
+  paths, or names in any tracked file (`pyproject.toml` has no author fields);
+  no co-author trailers or third-party emails in commit messages. The only
+  exposed identity is the commit author name/email — kept as is per user
+  decision, consistent with the public GitHub username.
+- Verification: pytest 15 passed (docs-only change).
+
+## M5a — prediction panel (6) + panel-5 weight sliders (2026-10-29)
+
+Both "first" items of the user's `ideas_for_review.txt`. Design decisions
+confirmed with the user up front: weight sliders 0–1 PLUS the panel-2 spinner
+as a separate multiplicative gain (total scale = weight · gain); one slider
+per EIGENVALUE but conjugate pairs visually grouped (one pair-colored bordered
+box per pair, partners adjacent); prediction panel with ALL THREE figures
+(field snapshot + probe forecast + error curve).
+
+- **Panel 5 weights (item 2)**: the mode-selection checkboxes are replaced by
+  a slider grid — one slider per eigenvalue, 0 (silenced) … 1 (fitted
+  contribution), step 0.01. `result.pairs` orders the grid: pairs sit adjacent
+  inside one 2-px pair-colored bordered box (singles in gray boxes), rows of
+  four boxes; moving one partner's slider mirrors the other (guard
+  `_syncing_weights`), so the reconstructed field stays real. The effective
+  amplitude model is `amplitudes = fit · weights · gains` (`_apply_scale_factors`)
+  — the panel-2 spinner ("|b| gain (selected)", renamed) multiplies an extra
+  gain 0–3 on top; both factors are pair-mirrored and real, preserving the
+  conjugate symmetry exactly. The "sum of selected modes" curve is gone (with
+  continuous weights the reconstruction curve IS the weighted sum); the thin
+  per-mode contribution lines now show for modes with weight > 0. Weights
+  reset to 1 on refit/sort (baselines recached) and via any panel's reset
+  button (`_reset_to_fit` rebuilt the sliders; the `reselect` parameter is
+  gone — all panels behave identically).
+- **Panel 6 prediction (item 1)**: the reconstruction formula
+  `Σ φᵢ·bᵢ·λᵢᵗ` advanced beyond the data window. New core:
+  `synthesize_window(modes, amplitudes, eigvals, dt, t_start, n_steps)` in
+  `core/synth.py` (`synthesize` delegates with `t_start = 0`); the truth is
+  the clean continuation `ModalSignal.evaluate_clean(t_values)` (new generator
+  method — the noise realization of future snapshots is unpredictable by
+  definition, the clean physics is not). flowTorch utilization: its
+  operator-based `DMD.predict` cross-validates the prediction (test
+  `test_prediction_matches_flowtorch_predict`: both agree to 1e-8 when started
+  from the model state at the window boundary) — the playground itself keeps
+  the synthesis path because the quantities are edited live after the fit
+  (drags/weights/gains/morph), which `DMD.predict` (bound to the fitted
+  object, amplitudes re-projected) cannot represent.
+  - Layout: control row (prediction-horizon spinner "n_pred" time levels,
+    default 150, bounds 8–5000 · probe-x slider snapping to the grid ·
+    reset), field snapshot (615×420) + probe forecast (615×420) side by side,
+    an INDEPENDENT time slider + play toggle (range data + horizon; own
+    periodic callback, wraps at the horizon end; the shared 4-way playback of
+    panels 1–5 is untouched), the error figure (940×280) + readout info box,
+    three hints. New "prediction" step color (teal, light + dark themes).
+  - Views: the field snapshot's model curve continues seamlessly from
+    reconstruction (inside) to prediction (beyond) with the reference
+    switching from the original (black solid) to the clean truth (black
+    dotted) at the dashed boundary — the inactive reference is NaN-masked;
+    the title switches "— data"/"— prediction". The probe series shows the
+    model over the whole horizon with the original ending at the boundary and
+    the truth dotted beyond. The error curve is the RMS over space against
+    the stage-wise reference (reconstruction error inside, prediction error
+    beyond) — growing eigenvalues (|λ| > 1) amplify it exponentially,
+    decaying ones keep it bounded; the readout reports stage, distance beyond
+    the window, and local + window-maximum RMS error. All ranges are
+    app-owned `Range1d` (honest scaling: exploding predictions expand the
+    frame), the error/probe/field figures are refreshed on every model edit
+    (drags, weights, gains, morph, horizon) but not per animation tick of the
+    other panels.
+- **Engine fix (found via the higher-mode-count checks)**: flowTorch solves
+  the amplitudes from the first snapshot without enforcing conjugate symmetry;
+  with ≥8 modes the solve noise breaks the symmetry and `DMDResult.pairs`
+  detected ZERO pairs (all pair colors/boxes would collapse to gray singles).
+  New `_symmetrize_amplitudes` in `core/engine.py`: pairs are detected from
+  the eigenvalues + mode shapes (both exactly conjugate for real data) and
+  each pair's amplitudes are replaced by their symmetric mean — the real
+  reconstruction is INVARIANT under this (a pair's contribution depends only
+  on `(b_i + conj(b_j))/2`), verified numerically (raw vs symmetrized
+  round-trip identical). Regression test added. Known limit (documented, not
+  fixed): at Nₘ ≥ 12 the generated signal's closely spaced wavenumbers are
+  nearly indistinguishable on the unit domain — the amplitude least-squares
+  is ill-conditioned and 1–2 eigenvalue pairs may collapse onto the real axis;
+  the round-trip error in the status box shows this honestly.
+- **Latent bug fixed**: `__init__` carried a leftover M4 bisection comment with
+  the initial `_apply_theme()` call DISABLED — the Start panel's workflow
+  names/buttons (the `_themed`-registered elements) shipped unstyled until the
+  first theme toggle. Re-enabled (found via pixel-level check: zero colored
+  pixels on tab0).
+- **Regressive bug found by the vision review**: `_run_dmd` no longer filled
+  the panel-5 time view — the old checkbox reset fired the change callback
+  that called `_update_time_view` as a SIDE EFFECT; with sliders (created at
+  their value) nothing fired and the reconstruction figure stayed empty in
+  the browser. `_update_time_view()` is now called explicitly in `_run_dmd`,
+  regression-guarded in the verify script (`_time_source` lengths + readout
+  text).
+- Debug tooling: `run/debug_server.py` serves seven tabs `/t0`–`/t6` (with the
+  /t6 cursor parked a quarter into the prediction window for captures);
+  `run/screenshot_tabs.py` captures seven tabs.
+- Verification: pytest 20 passed (new: `synthesize_window` slicing + prediction
+  growth + truth evaluation + flowTorch `predict` cross-check + engine
+  symmetrization); `run/verify_gui_polish.py` extended (weight/gain math with
+  partner mirroring, prediction field/truth/error/probe consistency, horizon
+  resize without refit, playback wrap, panel-6 reset, time-view regression
+  guard, pair-box grouping) — all green under `-W error::UserWarning`; fresh
+  vision review of tab0/tab5/tab6/tab6-prediction: all clean (six accent
+  buttons, sliders grouped in pair boxes with curves + populated readout, all
+  three prediction figures with boundary/cursor markers and correct stage
+  switching).
+
+## M5a follow-up — prediction panel slimmed to forecast + error (2026-10-29)
+
+User adjustments after trying panel 6:
+
+- **Field snapshot dropped**: panel 6 now shows exactly two figures — the
+  original-vs-prediction forecast at the probe point (1150×420) and the error
+  curve (1150×280), both time axes WIDTH-ALIGNED for direct comparison; the
+  `create_prediction_field_figure` builder, its sources, and the
+  `_on_predict_time_change` field refresh are gone (the cursor now drives
+  only the two spans + the readout).
+- **Forecast figure upgraded**: dynamic title "original vs. prediction at the
+  probe point x = …"; three-entry legend ("model", "original (data)",
+  "truth (clean continuation)") moved OUTSIDE above the frame as a
+  horizontal `ncols = 3` legend (same pattern as the other views; labels
+  shortened after the first capture wrapped the long "model (reconstruction ·
+  prediction)" into two rows — zoom review confirmed a single clean row).
+- **Playback to the end time**: the play toggle sweeps the cursor over data +
+  prediction and wraps at the horizon end (as the other animations do over
+  the data window); the readout sits in the slider row beside the controls.
+- **"prediction steps" box**: the horizon spinner is renamed and opened up to
+  full user control — bounds 1–5000 time levels (`_prediction_steps` and the
+  change callback clamp accordingly); the slider end and the play range
+  follow the input immediately.
+- **AGENTS.md rule added**: check the local flowTorch repository for an
+  existing implementation before writing any DMD-related math, and reuse it
+  or validate against it in the tests (motivated by the `DMD.predict`
+  cross-check during M5a).
+- **Shaded data window + strip-chart axis (user adjustment round 2)**: both
+  prediction figures carry a shaded `BoxAnnotation` over the data window
+  (theme muted gray at 0.08 alpha, ``level="underlay"``, ``right`` = boundary
+  time) so reconstruction and forecast stay distinguishable. The visible time
+  window (`_prediction_window`) is STATIC while the cursor is inside the data
+  window and starts SLIDING once the prediction begins — a strip chart with
+  the cursor at a fixed offset, like the panel-1 animation. Both figures
+  share the rule, keeping their time axes width-aligned at every cursor
+  position. The debug server gained a `/t6s` route (cursor left at t = 0)
+  next to the parked `/t6`.
+- **Stage annotations + prediction peek (user adjustment round 3)**: the
+  static frame now shows a small unshaded PEEK into the prediction (10 % of
+  the data-window length, capped to a quarter of the prediction window) with
+  the dotted truth inside it — the viewer sees what is about to happen.
+  Stage labels "reconstruction" (over the shaded part) and "prediction"
+  (over the unshaded part) are centered over their visible intersection with
+  the window on every refresh (`_position_prediction_labels` — during the
+  slide they follow the shaded tail and the growing forecast region; hidden
+  when a region is not visible) and sit at 70 % of the y-range (upper-middle
+  of the frame, per user adjustment they were too close to the top edge).
+- **Label chips (user adjustment round 4)**: the stage labels were too
+  subtle — they are now bold-italic 13 px CHIPS (semi-transparent rounded
+  background in the plot color, thin border, padding) that stay readable
+  over the curves; "reconstruction" in the theme text color, "prediction" in
+  the prediction accent (teal); all chip colors re-themed on switches
+  (dark-mode capture verified: no white-box artifacts, chips integrate into
+  the dark plot). bokeh `Label.padding` takes integer tuples (not CSS
+  strings) and `border_radius` an integer — noted as a pitfall.
+- Verification: pytest 20 passed; `run/verify_gui_polish.py` updated (field
+  figure checks replaced by outside-legend + dynamic-title + readout-stage
+  checks, plus static-vs-sliding x-window assertions for both figures and the
+  data-box span) — all green under `-W error::UserWarning`; vision review of
+  BOTH stages (static: shaded 0–3 s + unshaded peek with dotted truth, labels
+  over the correct regions; sliding: window ~0.4–3.7 s with shaded tail,
+  cursor inside, forecast ahead) plus a DARK-mode capture: all PASS (chips
+  legible over the curves, no glitches).

@@ -10,7 +10,7 @@ modules change, and every step appends a dated entry to `steps.md`.
 - `modules.md` — module-by-module reference: what each file contains, its public
   API, and its conventions
 - `steps.md` — chronological log of the implementation steps with what was built
-  and why
+  and why (kept locally only, untracked)
 
 Complementary documents in the repository root: `PLAN.md` (roadmap and milestone
 status), `README.md` (setup, usage, running the GUI), `AGENTS.md` (working rules

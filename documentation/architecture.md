@@ -40,14 +40,20 @@ Nothing in the core knows about Bokeh; nothing in `app` implements math.
 2. **`_run_dmd`**:
    `_build_signal()` reads the widgets and creates a `ModalSignal`
    → `fit_dmd(signal.samples, dt, rank)` (numpy → torch float64 → flowTorch DMD →
-   numpy quantities) → `synthesize(...)` caches the full reconstruction.
+   numpy quantities; the engine symmetrizes the pair amplitudes so the
+   conjugate-pair structure survives the numerics) → `_recompute_truth()` +
+   `_recompute_fields()` cache the reconstruction AND the prediction
+   (`synthesize_window` beyond the data window) plus the clean continuation
+   of the signal.
 3. **View updates** (`_update_*` methods): eigenvalue plane, spectrum,
-   continuous-time eigenvalue plane, mode viewer, sliders/checkbox bounds,
+   continuous-time eigenvalue plane, mode viewer, sliders/weight-grid bounds,
+   time view, prediction views (original-vs-prediction forecast, error curve),
    status line, and readout are refilled from the new `DMDResult`; Bokeh pushes
    the patches to the browser.
-4. **View-only interactions** (time slider, play animation, mode selection
-   checkboxes, mode index slider) call `_update_mode_view` / `_update_time_view`
-   only — **no refit**. The reconstruction is sliced from the cached field.
+4. **View-only interactions** (time slider, play animation, weight sliders,
+   probe, prediction cursor, mode index slider) call the matching `_update_*`
+   view methods only — **no refit**. The reconstruction and the prediction are
+   read from the cached fields.
 
 The layout is a `Tabs` widget with `tabs_location="left"` inside an application
 bar (title + light/dark theme `Switch`); the tabs are ordered **Start** (default
@@ -65,20 +71,23 @@ mode's contribution over x and t, time increasing upward: horizontal stripe
 spacing = wavelength 2π/κ from the shape, vertical spacing = temporal period
 1/f from the eigenvalue, stripe slope = propagation speed; diverging
 blue-white-red color map with color bar)),
-and **5 · Reconstruction**. All panels stay alive while hidden, so widget state
-survives tab switching. Four time sliders and play toggles (panels 1, 2, 4, 5)
-are two-way synchronized and drive one shared time cursor. Every panel carries
-a reset button: panel 1 restores the default signal parameters (and refits),
-panels 2–5 restore the fitted DMD values (panel 5 additionally re-selects all
-modes).
+and **5 · Reconstruction** and **6 · Prediction**. All panels stay alive while
+hidden, so widget state survives tab switching. Four time sliders and play
+toggles (panels 1, 2, 4, 5) are two-way synchronized and drive one shared time
+cursor; the prediction panel has its own independent cursor covering data plus
+prediction horizon. Every panel carries a reset button: panel 1 restores the
+default signal parameters (and refits), panels 2–6 restore the fitted DMD
+values (weights and gains included).
 
 **Editing loop (M3):** dragging an eigenvalue in the plane (PointDrawTool)
 commits once per gesture; `_on_eigenvalue_drag` writes the new eigenvalues into
-the result with conjugate mirroring (cached pair structure), recomputes the
-reconstruction via `synthesize`, and refreshes spectrum, λᵗ spiral, direction
-view, and readout — the same feedback path is used by the |b| scale spinner.
-Edits apply to the current fit; a refit restores the fitted values, and the
-per-panel reset buttons (`_reset_to_fit`) restore them on demand. Locked
+the result with conjugate mirroring (cached pair structure), recomputes
+reconstruction and prediction via `_recompute_fields`, and refreshes spectrum,
+λᵗ spiral, direction view, readout, and prediction views — the same feedback
+path is used by the panel-5 weight sliders and the |b| gain spinner (effective
+amplitude = fitted · weight · gain, pair-mirrored). Edits apply to the current
+fit; a refit restores the fitted values, and the per-panel reset buttons
+(`_reset_to_fit`) restore them on demand. Locked
 drags (unit-circle lock) are temporary experiments and reset when another
 eigenvalue is selected. The eigenvalue plane shades the two half planes to
 mark the sign of Im λ (equivalently the frequency sign), and a small triangle

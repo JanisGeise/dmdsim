@@ -19,7 +19,7 @@ users are students who just heard the DMD lecture in the ML-CFD course
 - **GUI:** Bokeh 3.10 server application (`dmdsim/app/`).
 - **Docs:** `README.md` (usage), `PLAN.md` (untracked roadmap),
   `documentation/` (internal docs: `architecture.md`, `modules.md`, `steps.md`
-  — keep them updated with every step), `run/reports/` (untracked review
+  (untracked) — keep them updated with every step), `run/reports/` (untracked review
   reports), `ideas_for_review.txt` (user's idea list — see Workflow below).
 
 ## Environment and Commands
@@ -55,6 +55,12 @@ GUI-independent and numpy-only; keep it that way.
 
 ### DMD / numerics
 - **flowTorch is the only DMD engine.** Never implement DMD math elsewhere.
+- **Check flowTorch first**: before implementing any DMD-related math or
+  functionality, check the local flowTorch repository (`../flowtorch`) for an
+  existing implementation (its `flowtorch/analysis/` modules and the `DMD`
+  API — e.g. `predict`, `reconstruction`, `top_modes`, `integral_contribution`)
+  and reuse it or validate the own implementation against it in the tests;
+  only implement in `dmdsim.core` what flowTorch does not provide.
 - **float64 through fits:** convert snapshot matrices to torch float64 before
   calling flowTorch (it preserves the input dtype; its default is float32).
 - **`DMDResult.pairs` is stateful**: pair detection runs on the *current*

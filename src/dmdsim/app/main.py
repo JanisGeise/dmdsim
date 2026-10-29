@@ -12,20 +12,21 @@ from bokeh.server.server import Server
 from bokeh.application import Application
 from bokeh.server.callbacks import PeriodicCallback
 from bokeh.application.handlers import FunctionHandler
-from bokeh.models import (Button, CheckboxGroup, Div, GlobalInlineStyleSheet,
-                          InlineStyleSheet, Range1d, Select, Slider, Spinner,
-                          Switch, TabPanel, Tabs, Toggle, Tooltip)
+from bokeh.models import (Button, Column, Div, GlobalInlineStyleSheet,
+                          InlineStyleSheet, Label, Range1d, Select, Slider,
+                          Spinner, Switch, TabPanel, Tabs, Toggle, Tooltip)
 from tornado.ioloop import PeriodicCallback as TornadoPeriodicCallback
 
 from dmdsim.core.engine import fit_dmd
 from dmdsim.core.quantities import DMDResult
-from dmdsim.core.synth import mirror_conjugates, synthesize
+from dmdsim.core.synth import synthesize, synthesize_window
 from dmdsim.signals.generator import ModalSignal, generate_modes
 
 from dmdsim.app.figures import (create_direction_figure, create_eigenvalue_figure,
                                 create_growth_direction_figure,
                                 create_mode_dynamics_figure,
-                                create_phase_figure, create_quadrature_figure,
+                                create_phase_figure, create_prediction_error_figure,
+                                create_prediction_probe_figure, create_quadrature_figure,
                                 create_signal_curve_figure, create_space_time_figure,
                                 create_spectrum_figure, create_time_curves_figure)
 from dmdsim.app.styling import (PAIR_PALETTE, PAIR_PALETTE_DARK, THEMES, header,
@@ -54,6 +55,14 @@ _MORPH_STANDING_THRESHOLD = 0.05
 _ARROW_SPEED_SCALE = 0.09
 _ARROW_MIN_LENGTH = 0.04
 _ARROW_MAX_LENGTH = 0.9
+# default prediction horizon of the new panel in time levels beyond the data
+_DEFAULT_PREDICTION_STEPS = 150
+# the static prediction frame peeks this fraction of the data-window length
+# into the forecast (capped to a quarter of the prediction window)
+_PREDICTION_PEEK_DATA = 0.1
+_PREDICTION_PEEK_PREDICTION = 0.25
+# number of weight-slider boxes (one per conjugate pair or single mode) per row
+_WEIGHT_BOXES_PER_ROW = 4
 
 # signal and fit parameters restored by the panel-1 reset button; the keys name
 # the spinner attributes (``_<key>_spinner``)
@@ -93,11 +102,17 @@ _HINT_MODE = ("Complex spatial shape φ(s): Re and Im form the wave profile, |φ
               "magnitude, and arg(φ) the local phase shift. A linear arg(φ) corresponds "
               "to a wavenumber.")
 _HINT_TIME = ("The curves show the field at the current time: the original (black), "
-              "the reconstruction (gray dashed, Σ φᵢ·bᵢ·λᵢᵗ), the per-eigenvalue "
-              "contributions of all checked eigenvalues in their pair colors "
-              "(hover to identify), and the selected eigenvalue's contribution "
-              "(thick, in its pair color). The time cursor is shared with all "
-              "panels.")
+              "the weighted reconstruction (gray dashed, Σ φᵢ·wᵢ·gᵢ·bᵢ·λᵢᵗ), the "
+              "per-eigenvalue contributions of all modes with a positive weight in "
+              "their pair colors (hover to identify), and the selected eigenvalue's "
+              "contribution (thick, in its pair color). The time cursor is shared "
+              "with all panels.")
+_HINT_WEIGHTS = ("One slider per eigenvalue, 0 = silenced to 1 = full fitted "
+                 "contribution; conjugate partners move together (one physical wave, "
+                 "one box, one color). The weights multiply the fitted amplitudes — "
+                 "the reconstruction, the spectrum, and the prediction (panel 6) "
+                 "respond live. The panel-2 '|b| gain' is an extra gain on top: "
+                 "total scale = weight · gain.")
 _HINT_SIGNAL_ANIMATION = ("Animation of the created signal in the fixed window "
                           "x ∈ [0, 1]: press play or drag the time slider to move in "
                           "time. The same time cursor drives the reconstruction view.")
@@ -131,6 +146,25 @@ _HINT_DIRECTION = ("The wave contribution Re{φ·b·λᵗ} of the selected mode,
                    "counter-traveling wave: the animation slows down and turns "
                    "into an in-place oscillation, and the arrow shrinks with "
                    "the remaining net propagation.")
+_HINT_PREDICTION_PROBE = ("The model curve Σ φᵢ·bᵢ·λᵢᵗ continues seamlessly from the "
+                          "data window (reconstruction) into the future "
+                          "(prediction): the original data end at the dashed "
+                          "boundary and the clean truth continues beyond it "
+                          "(black dotted) — future noise is unpredictable by "
+                          "definition. Mode weights (panel 5) and eigenvalue "
+                          "edits reshape the prediction live: eigenvalues "
+                          "outside the unit circle amplify it, inside they "
+                          "damp it. The 'prediction steps' box sets how far "
+                          "the model is advanced and the slider end follows.")
+_HINT_PREDICTION_ERROR = ("RMS error of the model over space against the reference "
+                          "(original inside the window, clean truth beyond the "
+                          "dashed boundary): inside the window this is the "
+                          "reconstruction error; beyond it the prediction error "
+                          "reflects how the eigenvalues extrapolate — modes with "
+                          "|λ| > 1 amplify the error exponentially, modes with "
+                          "|λ| < 1 keep it bounded. With noise, the fit is "
+                          "contaminated and the prediction drifts from the clean "
+                          "physics.")
 
 
 def _spinner(title: str, value: float | int, low: float | int, high: float | int,
@@ -186,7 +220,11 @@ class DMDPlayground:
         self._signal: ModalSignal | None = None
         self._result: DMDResult | None = None
         self._reconstruction: np.ndarray | None = None
+        self._prediction: np.ndarray | None = None
+        self._truth: np.ndarray | None = None
+        self._prediction_error: np.ndarray | None = None
         self._periodic_callback: PeriodicCallback | None = None
+        self._predict_periodic_callback: PeriodicCallback | None = None
         self._syncing_time = False
         self._syncing_play = False
         self._syncing_mode = False
@@ -194,10 +232,17 @@ class DMDPlayground:
         self._syncing_amplitude = False
         self._syncing_params = False
         self._syncing_morph = False
+        self._syncing_weights = False
+        self._syncing_probe = False
         self._cached_pairs: list[tuple[int, int]] = []
         self._fit_amplitudes: np.ndarray | None = None
         self._fit_eigvals: np.ndarray | None = None
         self._fit_modes: np.ndarray | None = None
+        self._mode_weights: np.ndarray | None = None
+        self._mode_gains: np.ndarray | None = None
+        self._weight_sliders: list[Slider] = []
+        self._weight_slider_by_mode: dict[int, Slider] = {}
+        self._pair_boxes: list[tuple[Column, int]] = []
         self._locked_edit_indices: set[int] = set()
         self._drag_cache: tuple[np.ndarray, np.ndarray] = (np.array([]), np.array([]))
         self._themed_divs: list[tuple[Div, str, str]] = []
@@ -213,8 +258,10 @@ class DMDPlayground:
         self._build_widgets()
         self._build_figures()
         self._build_layout()
-        # BISECTION: initial _apply_theme disabled temporarily
-        # self._apply_theme()
+        # initial theming: the _themed-registered elements (Start-panel workflow
+        # names/buttons etc.) carry no inline styles until this runs — without
+        # it they stay unstyled until the first theme toggle
+        self._apply_theme()
         self._attach_callbacks()
         # the root must be added after the callbacks are wired: bokeh resolves
         # incoming events (e.g. ButtonClick) via the models subscribed at
@@ -281,10 +328,10 @@ class DMDPlayground:
             "font-weight": "500",
         }
         # reset buttons: panel 1 restores the default signal parameters, panels
-        # 2-5 restore the fitted DMD values (the layout places one per panel)
+        # 2-6 restore the fitted DMD values (the layout places one per panel)
         self._reset_signal_button = Button(label="↺ reset parameters", width=170)
         self._reset_fit_buttons: dict[str, Button] = {}
-        for key in ("eigen", "spectrum", "modes", "recon"):
+        for key in ("eigen", "spectrum", "modes", "recon", "predict"):
             self._reset_fit_buttons[key] = Button(label="↺ reset to DMD fit",
                                                   width=170)
         self._status_div = info_box()
@@ -304,10 +351,12 @@ class DMDPlayground:
         self._signal_time_slider = Slider(title="t [s]", start=0, end=2.99, value=0,
                                           step=0.01, width=300)
         self._signal_play_toggle = Toggle(label="▶ play", active=False, width=100)
-        self._mode_select = CheckboxGroup(
-            labels=[], active=[], inline=True, width=1000,
-            stylesheets=[InlineStyleSheet(
-                css=".bk-input-group { flex-wrap: wrap; }")])
+        # continuous mode weights of panel 5: one slider per eigenvalue (0 =
+        # silenced, 1 = fitted contribution), grouped into one bordered box per
+        # conjugate pair so the pairing stays visible; the sliders are rebuilt
+        # on every fit and sort
+        self._weights_layout = column(spacing=8, width=1150)
+        self._weights_layout.styles = {"margin-top": "10px"}
         self._sort_select = Select(title="sort modes by", value="integral",
                                    options=[("integral", "integral contribution"),
                                             ("amplitude", "amplitude |b|"),
@@ -323,18 +372,19 @@ class DMDPlayground:
         self._eigen_time_slider = Slider(title="t [s]", start=0, end=2.99, value=0,
                                          step=0.01, width=300)
         self._eigen_play_toggle = Toggle(label="▶ play", active=False, width=100)
-        self._amplitude_spinner = Spinner(title="|b| scale (selected)", value=1.0,
+        self._amplitude_spinner = Spinner(title="|b| gain (selected)", value=1.0,
                                           low=0.0, high=3.0, step=0.01, width=160,
-                                          description="scales the contribution of the "
-                                                      "selected eigenvalue (and its "
-                                                      "conjugate partner) to the "
-                                                      "reconstruction: 1 = as fitted, "
-                                                      "0 = silenced, 2 = twice as "
-                                                      "strong; the original signal is "
-                                                      "not affected")
+                                          description="extra gain on the contribution "
+                                                      "of the selected eigenvalue "
+                                                      "(and its conjugate partner), "
+                                                      "applied on top of the mode "
+                                                      "weight set in panel 5: "
+                                                      "total scale = weight · gain "
+                                                      "(1 = no extra gain, 0 = "
+                                                      "silenced, 2 = doubled); the "
+                                                      "original signal is not "
+                                                      "affected")
         self._lock_toggle = Toggle(label="lock to unit circle", active=False, width=160)
-        # a little extra air below the play/slider row improves the grouping
-        self._mode_select.styles = {"margin-top": "10px"}
         self._readout_div = info_box()
         # slightly larger text improves the glanceability of the derived numbers
         self._direction_div = info_box(font_size="13px")
@@ -344,6 +394,23 @@ class DMDPlayground:
         self._modes_time_slider = Slider(title="t [s]", start=0, end=2.99, value=0,
                                          step=0.01, width=300)
         self._modes_play_toggle = Toggle(label="▶ play", active=False, width=100)
+        # prediction panel (6): the number of prediction steps (full user
+        # control, 1 level upwards), an independent time cursor covering data
+        # + prediction, and a probe point for the forecast time series
+        self._n_pred_spinner = _spinner("prediction steps", _DEFAULT_PREDICTION_STEPS,
+                                        1, 5000, 1, 160,
+                                        "number of future time levels n_pred the "
+                                        "fitted model is advanced beyond the data "
+                                        "window; the prediction covers "
+                                        "n_pred · Δt seconds")
+        self._probe_slider = Slider(title="probe x", start=0.0, end=1.0, value=0.5,
+                                    step=0.005, width=300)
+        self._predict_time_slider = Slider(title="t [s]", start=0, end=4.49, value=0,
+                                           step=0.01, width=300)
+        self._predict_play_toggle = Toggle(label="▶ play", active=False, width=100)
+        self._predict_div = info_box()
+        self._predict_div.width = 700
+        self._themed(self._predict_div, "info12")
 
     def _build_figures(self) -> None:
         """
@@ -382,6 +449,15 @@ class DMDPlayground:
         self._phase_figure, self._phase_source = create_phase_figure()
         self._space_time_figure, self._space_time_source, self._space_time_mapper = \
             create_space_time_figure(x_range=shape_x_range, height=420, width=615)
+        # prediction panel: the original-vs-prediction forecast and the error
+        (self._predict_probe_figure, self._predict_probe_source,
+         self._probe_boundary_span, self._probe_cursor_span,
+         self._probe_data_box, self._probe_labels,
+         self._predict_probe_renderers) = create_prediction_probe_figure()
+        (self._predict_error_figure, self._predict_error_source,
+         self._error_boundary_span, self._error_cursor_span,
+         self._error_data_box, self._error_labels,
+         self._predict_error_renderer) = create_prediction_error_figure()
         # register figures with their step colors for theming
         self._styled_figures = [
             (self._eigenvalue_figure, "eigenvalues"),
@@ -394,6 +470,8 @@ class DMDPlayground:
             (self._direction_figure, "modes"),
             (self._phase_figure, "modes"),
             (self._space_time_figure, "modes"),
+            (self._predict_probe_figure, "prediction"),
+            (self._predict_error_figure, "prediction"),
         ]
 
     def _build_layout(self) -> None:
@@ -438,10 +516,12 @@ class DMDPlayground:
             "strength. Every mode contributes φ·b·λ<sup>t</sup>, and the sum of all "
             "modes reconstructs the signal: "
             "y(x, t) ≈ Σ<sub>i</sub> φ<sub>i</sub>(x) · b<sub>i</sub> · λ<sub>i</sub>"
-            "<sup>t</sup>.",
+            "<sup>t</sup>. Because every mode carries its own λ<sup>t</sup>, the "
+            "same formula also <b>predicts beyond the data window</b> — growing "
+            "eigenvalues amplify it, decaying ones damp it (panel 6).",
             font_size="13px")
         step_for_panel = {1: "setup", 2: "eigenvalues", 3: "spectrum", 4: "modes",
-                          5: "reconstruction"}
+                          5: "reconstruction", 6: "prediction"}
         descriptions = [
             ("1 · Signal", "design a traveling-wave signal and run the DMD fit", 1),
             ("2 · Eigenvalues", "inspect the fitted eigenvalues — drag them and watch "
@@ -451,7 +531,10 @@ class DMDPlayground:
             ("4 · Mode shapes", "look at Re/Im/phase of each mode and its traveling "
                                 "wave", 4),
             ("5 · Reconstruction", "compare the reconstruction against the original "
-                                   "and toggle modes on and off", 5),
+                                   "and blend mode contributions with weight "
+                                   "sliders", 5),
+            ("6 · Prediction", "advance the fitted model beyond the data window and "
+                               "watch the prediction error grow", 6),
         ]
         buttons = [Button(label="Open", width=90) for _ in descriptions]
         workflow_rows = []
@@ -473,9 +556,10 @@ class DMDPlayground:
             self._themed(desc_div, "wf_desc")
         tips = hint(
             "Tips: drag the eigenvalue dots in panel 2 (the toggle 'lock to unit "
-            "circle' keeps them neutral) · uncheck eigenvalues in panel 5 to see "
-            "each mode's contribution · hover curves and markers for details · "
-            "switch light/dark above.",
+            "circle' keeps them neutral) · blend mode contributions with the "
+            "weight sliders in panel 5 · advance the model into the future in "
+            "panel 6 · hover curves and markers for details · switch light/dark "
+            "above.",
             width=1000)
         start_panel = column(
             nutshell,
@@ -555,11 +639,25 @@ class DMDPlayground:
                                 self._reset_fit_buttons["modes"]),
                             mode_tabs, spacing=10)
         time_panel = column(
-            self._themed_header("Time &amp; mode selection", "reconstruction"),
+            self._themed_header("Time &amp; mode weights", "reconstruction"),
             row(self._time_slider, self._play_toggle, self._reset_fit_buttons["recon"]),
-            self._mode_select,
+            self._weights_layout,
             self._time_figure,
             row(self._themed_hint(_HINT_TIME, width=500), self._readout_div),
+            self._themed_hint(_HINT_WEIGHTS, width=1150),
+            spacing=10,
+        )
+        prediction_panel = column(
+            self._themed_header("Prediction beyond the data window", "prediction"),
+            row(self._n_pred_spinner, self._probe_slider,
+                self._reset_fit_buttons["predict"]),
+            self._predict_probe_figure,
+            row(self._predict_time_slider, self._predict_play_toggle,
+                self._predict_div),
+            self._predict_error_figure,
+            row(self._themed_hint(_HINT_PREDICTION_PROBE, width=570),
+                self._themed_hint(_HINT_PREDICTION_ERROR, width=570),
+                spacing=10),
             spacing=10,
         )
         self._tabs = Tabs(tabs=[
@@ -569,6 +667,7 @@ class DMDPlayground:
             TabPanel(child=spectrum_panel, title="3 · Spectrum"),
             TabPanel(child=mode_panel, title="4 · Mode shapes"),
             TabPanel(child=time_panel, title="5 · Reconstruction"),
+            TabPanel(child=prediction_panel, title="6 · Prediction"),
         ], tabs_location="left",
             stylesheets=[self._tab_sheet])
         self._mode_tabs.stylesheets = [self._mode_tab_sheet]
@@ -659,13 +758,41 @@ class DMDPlayground:
         self._curve_renderers["original"].glyph.line_color = theme["line_original"]
         self._curve_renderers["reconstruction"].glyph.line_color = \
             theme["line_reconstruction"]
-        self._curve_renderers["selection"].glyph.line_color = theme["line_selection"]
+        # the prediction panel's model curve follows the prediction accent, the
+        # references follow the original line color, and the error is red
+        renderers = self._predict_probe_renderers
+        renderers["model"].glyph.line_color = theme["line_prediction"]
+        renderers["original"].glyph.line_color = theme["line_original"]
+        renderers["truth"].glyph.line_color = theme["line_original"]
+        self._predict_error_renderer.glyph.line_color = theme["line_error"]
+        # the shaded data-window background follows the theme's muted gray;
+        # the stage labels are chips: reconstruction in the text color,
+        # prediction in the prediction accent, on the plot background
+        for box in (self._probe_data_box, self._error_data_box):
+            box.fill_color = theme["muted"]
+        for labels in (self._probe_labels, self._error_labels):
+            reconstruction = labels["reconstruction"]
+            reconstruction.text_color = theme["text"]
+            reconstruction.border_line_color = theme["muted"]
+            prediction = labels["prediction"]
+            prediction.text_color = theme["line_prediction"]
+            prediction.border_line_color = theme["accents"]["prediction"]
+            for label in labels.values():
+                label.background_fill_color = theme["plot_bg"]
+        for span in (self._probe_cursor_span, self._error_cursor_span):
+            span.line_color = theme["accents"]["prediction"]
+        for span in (self._probe_boundary_span, self._error_boundary_span):
+            span.line_color = theme["muted"]
         # the half-plane shading of the eigenvalue plane follows the theme
         upper_color, lower_color = halfplane_colors(self._theme)
         self._upper_halfplane_renderer.glyph.fill_color = upper_color
         self._lower_halfplane_renderer.glyph.fill_color = lower_color
         self._upper_halfplane_label.text_color = upper_color
         self._lower_halfplane_label.text_color = lower_color
+        # the pair boxes of the weight sliders carry the pair colors
+        colors = self._pair_colors()
+        for box, index in self._pair_boxes:
+            box.styles = {**box.styles, "border": f"2px solid {colors[index]}"}
         for div, kind, step in self._themed_divs:
             if kind == "header":
                 div.styles = header_styles(step, self._theme)
@@ -705,8 +832,7 @@ class DMDPlayground:
                          "--hover-color": theme["tab_hover_bg"],
                          "--disabled-color": theme["muted"]}
         for model in list(self._doc.models):
-            if isinstance(model, (Spinner, Select, Slider, Toggle, Switch,
-                                  CheckboxGroup)):
+            if isinstance(model, (Spinner, Select, Slider, Toggle, Switch)):
                 model.styles = widget_styles
 
     def _on_theme_switch(self, attr: str, old: bool, new: bool) -> None:
@@ -768,8 +894,7 @@ class DMDPlayground:
         self._run_button.on_click(self._run_dmd)
         self._reset_signal_button.on_click(self._reset_signal_parameters)
         for key, button in self._reset_fit_buttons.items():
-            button.on_click(partial(self._reset_to_fit,
-                                    reselect=(key == "recon")))
+            button.on_click(self._reset_to_fit)
         self._auto_toggle.on_change("value", self._on_auto_toggle)
         # keep the frequency bounds mutually consistent
         self._f_min_spinner.on_change("value", self._on_f_min_change)
@@ -782,11 +907,16 @@ class DMDPlayground:
         self._signal_time_slider.on_change("value", self._on_time_change)
         self._eigen_time_slider.on_change("value", self._on_time_change)
         self._modes_time_slider.on_change("value", self._on_time_change)
-        self._mode_select.on_change("active", self._on_view_change)
         self._play_toggle.on_change("active", self._on_recon_play)
         self._signal_play_toggle.on_change("active", self._on_signal_play)
         self._eigen_play_toggle.on_change("active", self._on_eigen_play)
         self._modes_play_toggle.on_change("active", self._on_modes_play)
+        # prediction panel: horizon (recomputes the prediction, no refit),
+        # probe point, independent time cursor, and playback
+        self._n_pred_spinner.on_change("value", self._on_n_pred_change)
+        self._probe_slider.on_change("value", self._on_probe_change)
+        self._predict_time_slider.on_change("value", self._on_predict_time_change)
+        self._predict_play_toggle.on_change("active", self._on_predict_play)
 
     def _build_signal(self) -> ModalSignal:
         """
@@ -842,8 +972,6 @@ class DMDPlayground:
                     rank = None
             result = fit_dmd(signal.samples, dt=signal.dt, rank=rank)
             result.sort(by=self._sort_select.value)
-            reconstruction = synthesize(result.modes, result.amplitudes, result.eigvals,
-                                        signal.dt, signal.n_time)
         except (AssertionError, IndexError, RuntimeError, ValueError) as error:
             logger.exception("The DMD fit failed")
             self._status_div.text = (f"<span style='color:#c5221f'><b>the DMD fit "
@@ -851,15 +979,24 @@ class DMDPlayground:
             return
         self._signal = signal
         self._result = result
-        self._reconstruction = reconstruction
+        # the clean continuation of the modal composition is the prediction's
+        # ground truth (future noise is unpredictable by definition)
+        self._recompute_truth()
+        self._recompute_fields()
         # keep the slider ends consistent before any view reads them
         self._update_time_slider()
+        self._update_predict_slider()
         self._update_mode_slider()
         self._update_field_view()
         self._update_quantities()
         self._update_mode_view()
-        self._update_mode_select()
+        self._update_mode_weights()
         self._update_time_limits()
+        # the time view must be filled explicitly: with weight sliders (created
+        # at their current value) no change callback fires on a fresh fit — the
+        # old checkbox reset did that as a side effect of re-selecting
+        self._update_time_view()
+        self._update_prediction_views()
         error = float(np.abs(self._reconstruction - signal.samples).max())
         # only the automatic rank and the error are shown; an explicitly set rank
         # is known to the user already
@@ -892,20 +1029,19 @@ class DMDPlayground:
         self._syncing_params = False
         self._run_dmd()
 
-    def _reset_to_fit(self, reselect: bool = False) -> None:
+    def _reset_to_fit(self) -> None:
         """
         Restore the fitted eigenvalues, amplitudes, and mode shapes and refresh
         all views.
 
         The reset undoes every eigenvalue drag (including unit-circle-locked
-        ones), every |b| scaling, and every mode-shape morph: the cached fit
-        baselines are written back, the reconstruction is recomputed, and the
-        eigenvalue plane, spectrum, growth-direction plane, and time/dynamics
-        views are updated. The panel-5 button additionally checks all
-        mode-selection boxes again.
+        ones), every |b| gain, every mode-shape morph, and every mode weight:
+        the cached fit baselines are written back, the weight and gain factors
+        return to one, the reconstruction and prediction are recomputed, and
+        the eigenvalue plane, spectrum, growth-direction plane, time/dynamics
+        views, and the prediction views are updated. The weight sliders are
+        rebuilt at their neutral value one.
 
-        :param reselect: whether to restore the full mode selection as well
-        :type reselect: bool
         :return: None
         :rtype: None
         """
@@ -924,20 +1060,19 @@ class DMDPlayground:
         self._syncing_morph = True
         self._morph_slider.value = 1.0
         self._syncing_morph = False
-        self._reconstruction = synthesize(result.modes, result.amplitudes,
-                                          result.eigvals, self._signal.dt,
-                                          self._signal.n_time)
+        if self._mode_weights is not None and self._mode_gains is not None:
+            self._mode_weights[:] = 1.0
+            self._mode_gains[:] = 1.0
+        self._recompute_fields()
         self._update_eigenvalue_markers()
         self._update_spectrum()
         # the shape views must follow the restored modes (the morph edits them
-        # in place; the reselect path refreshes them via the view callbacks)
+        # in place); rebuilding the weight sliders restores their neutral values
         self._update_mode_view()
+        self._update_mode_weights()
         self._update_time_limits()
-        if reselect:
-            # restoring the selection fires the view callbacks (time view incl.)
-            self._update_mode_select()
-        else:
-            self._update_time_view()
+        self._update_time_view()
+        self._update_prediction_views()
         error = float(np.abs(self._reconstruction - self._signal.samples).max())
         self._status_div.text = (f"reset to the fitted values — round-trip error "
                                  f"{error:.1e}")
@@ -1068,6 +1203,93 @@ class DMDPlayground:
         self._time_figure.y_range.start = -1.05 * vmax
         self._time_figure.y_range.end = 1.05 * vmax
 
+    def _prediction_steps(self) -> int:
+        """
+        Return the number of prediction steps from the spinner.
+
+        :return: number of future time levels beyond the data window
+        :rtype: int
+        """
+        return int(min(max(self._n_pred_spinner.value, 1), 5000))
+
+    def _recompute_fields(self) -> None:
+        """
+        Recompute the reconstruction and the prediction from the current state.
+
+        The reconstruction covers the fitted data window (time levels
+        :math:`0, \\ldots, n_{time} - 1`) and the prediction continues the same
+        synthesis formula beyond it with the current (possibly edited)
+        quantities — the DMD model advanced into the future.
+
+        :return: None
+        :rtype: None
+        """
+        result = self._result
+        signal = self._signal
+        if result is None or signal is None:
+            return
+        self._reconstruction = synthesize(result.modes, result.amplitudes,
+                                          result.eigvals, signal.dt, signal.n_time)
+        self._prediction = synthesize_window(result.modes, result.amplitudes,
+                                             result.eigvals, signal.dt,
+                                             signal.n_time, self._prediction_steps())
+
+    def _recompute_truth(self) -> None:
+        """
+        Recompute the clean continuation of the signal over the prediction window.
+
+        The truth is the modal composition of the generated signal evaluated at
+        the future time levels — the noise realization of future snapshots is
+        unpredictable by definition, the clean physics is not.
+
+        :return: None
+        :rtype: None
+        """
+        signal = self._signal
+        if signal is None:
+            return
+        steps = self._prediction_steps()
+        future_time = signal.dt * np.arange(signal.n_time, signal.n_time + steps)
+        self._truth = signal.evaluate_clean(future_time)
+
+    def _apply_scale_factors(self) -> None:
+        """
+        Write the weighted and gained amplitudes into the current result.
+
+        The effective amplitude of every mode is the fitted amplitude times its
+        weight (panel-5 slider, :math:`[0, 1]`) times its gain (panel-2 spinner,
+        :math:`[0, 3]`); both factors are real and equal within a conjugate
+        pair, so the conjugate symmetry of the amplitudes is preserved exactly.
+
+        :return: None
+        :rtype: None
+        """
+        result = self._result
+        if result is None or self._fit_amplitudes is None \
+                or self._mode_weights is None or self._mode_gains is None:
+            return
+        result.amplitudes = self._fit_amplitudes * self._mode_weights * self._mode_gains
+
+    def _update_predict_slider(self) -> None:
+        """
+        Adjust the bounds of the prediction time slider to data plus horizon.
+
+        The slider operates in seconds and snaps to the frame grid
+        (step = Δt); it covers the data window and the prediction window and is
+        independent of the shared time cursors of the other panels.
+
+        :return: None
+        :rtype: None
+        """
+        signal = self._signal
+        if signal is None:
+            return
+        end = max((signal.n_time - 1 + self._prediction_steps()) * signal.dt, 0.0)
+        self._predict_time_slider.step = signal.dt
+        self._predict_time_slider.end = end
+        if self._predict_time_slider.value > end:
+            self._predict_time_slider.value = end
+
     def _update_quantities(self) -> None:
         """
         Update the eigenvalue plane, the spectrum, and the continuous-time
@@ -1093,6 +1315,8 @@ class DMDPlayground:
             self._fit_amplitudes = None
             self._fit_eigvals = None
             self._fit_modes = None
+            self._mode_weights = None
+            self._mode_gains = None
             self._drag_cache = (np.array([]), np.array([]))
             return
         self._update_eigenvalue_markers()
@@ -1103,6 +1327,10 @@ class DMDPlayground:
         self._fit_amplitudes = result.amplitudes.copy()
         self._fit_eigvals = result.eigvals.copy()
         self._fit_modes = result.modes.copy()
+        # a fresh fit (or a re-sort, which bakes the current amplitudes into
+        # the new baseline) starts with neutral weights and gains
+        self._mode_weights = np.ones(result.n_modes)
+        self._mode_gains = np.ones(result.n_modes)
         self._locked_edit_indices = set()
         self._drag_cache = (result.eigvals.real.copy(), result.eigvals.imag.copy())
         self._syncing_amplitude = True
@@ -1475,23 +1703,74 @@ class DMDPlayground:
               f"toward {direction} {arrow_char}"
             + mixed)
 
-    def _update_mode_select(self) -> None:
+    def _update_mode_weights(self) -> None:
         """
-        Rebuild the mode selection checkboxes; all modes are selected by default.
+        Rebuild the weight-slider grid; all modes start at their fitted weight.
+
+        One slider per eigenvalue spans 0 (silenced) to 1 (fitted contribution);
+        the sliders of a conjugate pair are grouped inside one pair-colored box
+        so the pairing stays visible, unpaired modes (e.g. a constant offset)
+        get a gray box. The boxes are laid out in rows of four.
 
         :return: None
         :rtype: None
         """
         result = self._result
         if result is None or result.n_modes == 0:
-            self._mode_select.active = []
-            self._mode_select.labels = []
+            self._weights_layout.children = []
+            self._weight_sliders = []
+            self._weight_slider_by_mode = {}
+            self._pair_boxes = []
             return
-        # reset the selection before relabeling to avoid stale indices in between
-        self._mode_select.active = []
-        self._mode_select.labels = [f"mode {i}: f = {f:.2f} Hz"
-                                    for i, f in enumerate(result.frequencies)]
-        self._mode_select.active = list(range(result.n_modes))
+        # order the sliders pair-first so the two members of every conjugate
+        # pair sit adjacent inside their shared box; unpaired modes (e.g. a
+        # constant offset) get their own gray box
+        ordered = [index for pair in result.pairs for index in pair]
+        paired = {index for pair in result.pairs for index in pair}
+        singles = [i for i in range(result.n_modes) if i not in paired]
+        colors = self._pair_colors()
+        self._weight_sliders = []
+        self._pair_boxes = []
+        boxes = []
+        for k in range(0, len(ordered), 2):
+            members = ordered[k:k + 2]
+            box = self._weight_box(members, colors[members[0]])
+            boxes.append(box)
+            self._pair_boxes.append((box, members[0]))
+        for index in singles:
+            box = self._weight_box([index], colors[index])
+            boxes.append(box)
+            self._pair_boxes.append((box, index))
+        rows = [row(*boxes[k:k + _WEIGHT_BOXES_PER_ROW], spacing=8)
+                for k in range(0, len(boxes), _WEIGHT_BOXES_PER_ROW)]
+        self._weights_layout.children = rows
+
+    def _weight_box(self, indices: list[int], color: str) -> Column:
+        """
+        Create one bordered weight-slider box for a mode or a conjugate pair.
+
+        :param indices: mode indices of the box (one or two members)
+        :type indices: list[int]
+        :param color: border color identifying the conjugate pair
+        :type color: str
+        :return: box layout with one weight slider per mode
+        :rtype: Column
+        """
+        result = self._result
+        sliders = []
+        for index in indices:
+            frequency = result.frequencies[index]
+            slider = Slider(title=f"mode {index} · f = {frequency:+.2f} Hz",
+                            start=0.0, end=1.0, value=float(self._mode_weights[index]),
+                            step=0.01, width=258)
+            slider.on_change("value", partial(self._on_weight_change, index=index))
+            sliders.append(slider)
+            self._weight_sliders.append(slider)
+            self._weight_slider_by_mode[index] = slider
+        box = column(*sliders, spacing=4,
+                     styles={"border": f"2px solid {color}", "border-radius": "6px",
+                             "padding": "2px 4px"})
+        return box
 
     def _update_time_view(self) -> None:
         """
@@ -1512,24 +1791,20 @@ class DMDPlayground:
         reconstruction = (self._reconstruction[:, t_index] if self._reconstruction is not None
                           else np.zeros_like(original))
         selected = np.zeros_like(original)
-        selection = np.zeros_like(original)
         index = 0
         if result is not None and result.n_modes > 0:
             index = min(int(self._mode_slider.value), result.n_modes - 1)
             selected = self._mode_field(index, t_index)
-            for i in self._mode_select.active:
-                if i < result.n_modes:
-                    selection += self._mode_field(i, t_index)
         self._time_source.data = dict(s=self._signal.space, original=original,
-                                      reconstruction=reconstruction, selected=selected,
-                                      selection=selection)
-        # thin per-eigenvalue contribution lines in pair colors for all checked
-        # eigenvalues; the selected eigenvalue's line is thicker in its pair color
+                                      reconstruction=reconstruction, selected=selected)
+        # thin per-eigenvalue contribution lines in pair colors for all modes
+        # with a positive weight; the selected eigenvalue's line is thicker in
+        # its pair color
         pair_xs, pair_ys, pair_colors, pair_index, pair_f = [], [], [], [], []
         if result is not None and result.n_modes > 0:
             colors = self._pair_colors()
-            for i in self._mode_select.active:
-                if i < result.n_modes:
+            for i in range(result.n_modes):
+                if self._mode_weights is not None and self._mode_weights[i] > 0.0:
                     pair_xs.append(self._signal.space)
                     pair_ys.append(self._mode_field(i, t_index))
                     pair_colors.append(colors[i])
@@ -1671,60 +1946,114 @@ class DMDPlayground:
         updated["y"] = y
         self._dynamics_all_source.data = updated
         self._syncing_drag = False
-        # feed the edited eigenvalues back into the reconstruction and all views
-        self._reconstruction = synthesize(self._result.modes, self._result.amplitudes,
-                                          self._result.eigvals, self._signal.dt,
-                                          self._signal.n_time)
+        # feed the edited eigenvalues back into the reconstruction, prediction,
+        # and all views
+        self._recompute_fields()
         error = float(np.abs(self._reconstruction - self._signal.samples).max())
         self._status_div.text = f"edited — max deviation from the original: {error:.1e}"
         self._update_spectrum()
         self._update_space_time_view()
         self._update_time_limits()
         self._update_time_view()
+        self._update_prediction_views()
 
     def _on_amplitude_change(self, attr: str, old: object, new: object) -> None:
         """
-        Scale the amplitude of the selected eigenvalue and mirror its partner.
+        Apply the extra gain of the selected eigenvalue and mirror its partner.
 
-        The scale factor is applied relative to the fitted amplitude so the
-        slider position corresponds to the current scaling; the reconstruction
-        and all views are updated live.
+        The gain multiplies the fitted amplitude on top of the mode weight
+        (total scale = weight · gain), so the spinner position corresponds to
+        the current extra gain; the reconstruction, prediction, and all views
+        are updated live.
 
         :param attr: name of the changed widget attribute
         :type attr: str
         :param old: previous attribute value
         :type old: object
-        :param new: new attribute value (the scale factor)
+        :param new: new attribute value (the extra gain)
         :type new: object
         :return: None
         :rtype: None
         """
         if self._syncing_amplitude or self._result is None or self._signal is None \
-                or self._fit_amplitudes is None:
+                or self._fit_amplitudes is None or self._mode_gains is None:
             return
         index = min(int(self._mode_slider.value), self._result.n_modes - 1)
         # typed values are not clamped by the widget: enforce the declared bounds
-        scale = min(max(float(new), 0.0), 3.0)
-        if scale != float(new):
+        gain = min(max(float(new), 0.0), 3.0)
+        if gain != float(new):
             self._syncing_amplitude = True
-            self._amplitude_spinner.value = scale
+            self._amplitude_spinner.value = gain
             self._syncing_amplitude = False
-        self._result.amplitudes[index] = self._fit_amplitudes[index] * scale
-        # mirror the conjugate partner (conjugated amplitude, same scale)
+        # the gain applies to the selected eigenvalue and its conjugate partner
+        self._mode_gains[index] = gain
         for a, b in self._cached_pairs:
             if a == index:
-                self._result.amplitudes[b] = np.conj(self._result.amplitudes[index])
+                self._mode_gains[b] = gain
             elif b == index:
-                self._result.amplitudes[a] = np.conj(self._result.amplitudes[index])
-        self._reconstruction = synthesize(self._result.modes, self._result.amplitudes,
-                                          self._result.eigvals, self._signal.dt,
-                                          self._signal.n_time)
+                self._mode_gains[a] = gain
+        self._apply_scale_factors()
+        self._recompute_fields()
         error = float(np.abs(self._reconstruction - self._signal.samples).max())
         self._status_div.text = f"edited — max deviation from the original: {error:.1e}"
         self._update_spectrum()
         self._update_space_time_view()
         self._update_time_limits()
         self._update_time_view()
+        self._update_prediction_views()
+
+    def _on_weight_change(self, attr: str, old: object, new: object,
+                          index: int = 0) -> None:
+        """
+        Apply the weight of one eigenvalue and mirror its conjugate partner.
+
+        The weight multiplies the fitted amplitude (times the extra gain of the
+        panel-2 spinner); the partner's slider follows so both members of the
+        pair always carry the same weight, keeping the reconstructed field real.
+
+        :param attr: name of the changed widget attribute
+        :type attr: str
+        :param old: previous attribute value
+        :type old: object
+        :param new: new attribute value (the weight)
+        :type new: object
+        :param index: mode index of the slider that fired the change
+        :type index: int
+        :return: None
+        :rtype: None
+        """
+        if self._syncing_weights or self._result is None or self._signal is None \
+                or self._mode_weights is None or self._mode_gains is None \
+                or index >= self._result.n_modes:
+            return
+        # typed values are not clamped by the widget: enforce the declared bounds
+        weight = min(max(float(new), 0.0), 1.0)
+        if weight != float(new):
+            self._syncing_weights = True
+            self._weight_slider_by_mode[index].value = weight
+            self._syncing_weights = False
+        self._mode_weights[index] = weight
+        # mirror the conjugate partner (one physical wave, one weight)
+        for a, b in self._cached_pairs:
+            if a == index:
+                self._syncing_weights = True
+                self._weight_slider_by_mode[b].value = weight
+                self._syncing_weights = False
+                self._mode_weights[b] = weight
+            elif b == index:
+                self._syncing_weights = True
+                self._weight_slider_by_mode[a].value = weight
+                self._syncing_weights = False
+                self._mode_weights[a] = weight
+        self._apply_scale_factors()
+        self._recompute_fields()
+        error = float(np.abs(self._reconstruction - self._signal.samples).max())
+        self._status_div.text = f"edited — max deviation from the original: {error:.1e}"
+        self._update_spectrum()
+        self._update_space_time_view()
+        self._update_time_limits()
+        self._update_time_view()
+        self._update_prediction_views()
 
     def _morph_factor(self, index: int) -> float:
         """
@@ -1777,14 +2106,13 @@ class DMDPlayground:
                 result.modes[:, b] = np.conj(morphed)
             elif b == index:
                 result.modes[:, a] = np.conj(morphed)
-        self._reconstruction = synthesize(result.modes, result.amplitudes,
-                                          result.eigvals, self._signal.dt,
-                                          self._signal.n_time)
+        self._recompute_fields()
         self._update_mode_view()
         self._update_spectrum()
         self._update_space_time_view()
         self._update_time_limits()
         self._update_time_view()
+        self._update_prediction_views()
         error = float(np.abs(self._reconstruction - self._signal.samples).max())
         self._status_div.text = f"edited — max deviation from the original: {error:.1e}"
 
@@ -1833,7 +2161,9 @@ class DMDPlayground:
         self._result.sort(by=str(new))
         self._update_quantities()
         self._update_mode_view()
+        self._update_mode_weights()
         self._update_time_view()
+        self._update_prediction_views()
 
     def _on_f_min_change(self, attr: str, old: object, new: object) -> None:
         """
@@ -1959,33 +2289,245 @@ class DMDPlayground:
                 if i < self._result.n_modes:
                     self._result.eigvals[i] = self._fit_eigvals[i]
             self._locked_edit_indices = set()
-            self._reconstruction = synthesize(self._result.modes, self._result.amplitudes,
-                                              self._result.eigvals, self._signal.dt,
-                                              self._signal.n_time)
+            self._recompute_fields()
         self._update_mode_view()
         self._update_eigenvalue_markers()
         self._update_spectrum()
         # selecting a different eigenvalue restarts the shared time cursor
         self._time_slider.value = 0.0
-        # the amplitude spinner follows the scale of the newly selected eigenvalue
+        # the amplitude spinner follows the extra gain of the newly selected
+        # eigenvalue (the mode weight lives on its panel-5 slider)
         index = min(int(self._mode_slider.value), self._result.n_modes - 1) \
             if self._result is not None and self._result.n_modes > 0 else 0
-        if self._fit_amplitudes is not None and index < len(self._fit_amplitudes) \
-                and abs(self._fit_amplitudes[index]) > 0.0:
-            scale = abs(self._result.amplitudes[index]) / abs(self._fit_amplitudes[index])
+        if self._mode_gains is not None and index < len(self._mode_gains):
+            gain = float(self._mode_gains[index])
         else:
-            scale = 1.0
+            gain = 1.0
         self._syncing_amplitude = True
-        self._amplitude_spinner.value = scale
+        self._amplitude_spinner.value = gain
         self._syncing_amplitude = False
         # the morph slider follows the selected mode's current quadrature mix
         self._syncing_morph = True
         self._morph_slider.value = self._morph_factor(index)
         self._syncing_morph = False
 
-    def _on_view_change(self, attr: str, old: object, new: object) -> None:
+    def _prediction_window(self) -> tuple[float, float]:
         """
-        React to a selection change by updating the views without a refit.
+        Compute the visible time window of the prediction views.
+
+        The frame is the data window plus a small PEEK into the prediction
+        (so the static view shows what is about to happen); it stays STATIC
+        while the cursor is inside the data window and starts SLIDING once
+        the prediction begins — a strip chart with the cursor at a fixed
+        offset from the left edge and the peek always ahead of it, clamped at
+        the end of the horizon. Both prediction views share this rule.
+
+        :return: visible time window ``(start, end)`` in seconds
+        :rtype: tuple[float, float]
+        """
+        signal = self._signal
+        boundary = (signal.n_time - 1) * signal.dt
+        horizon = boundary + self._prediction_steps() * signal.dt
+        peek = min(_PREDICTION_PEEK_DATA * boundary,
+                   _PREDICTION_PEEK_PREDICTION * self._prediction_steps() * signal.dt)
+        width = boundary + peek
+        start = max(0.0, self._predict_time_slider.value - boundary)
+        end = min(start + width, horizon)
+        return max(0.0, end - width), end
+
+    def _position_prediction_labels(self, labels: dict[str, Label], start: float,
+                                    end: float, y_end: float) -> None:
+        """
+        Place the stage labels over their visible region of the time window.
+
+        The "reconstruction" label is centered over the visible intersection
+        of the window with the shaded data window and the "prediction" label
+        over the visible unshaded part; a label is hidden while its region is
+        not visible at all. Both sit at 70 % of the y-range (upper-middle of
+        the frame, clearly below the top edge).
+
+        :param labels: the figure's stage labels (``"reconstruction"`` and
+            ``"prediction"``)
+        :type labels: dict[str, Label]
+        :param start: visible time-window start in seconds
+        :type start: float
+        :param end: visible time-window end in seconds
+        :type end: float
+        :param y_end: upper end of the figure's y-range
+        :type y_end: float
+        :return: None
+        :rtype: None
+        """
+        boundary = (self._signal.n_time - 1) * self._signal.dt
+        shaded_hi = min(end, boundary)
+        if shaded_hi > start:
+            labels["reconstruction"].visible = True
+            labels["reconstruction"].x = 0.5 * (start + shaded_hi)
+            labels["reconstruction"].y = 0.7 * y_end
+        else:
+            labels["reconstruction"].visible = False
+        unshaded_lo = max(start, boundary)
+        if end > unshaded_lo:
+            labels["prediction"].visible = True
+            labels["prediction"].x = 0.5 * (unshaded_lo + end)
+            labels["prediction"].y = 0.7 * y_end
+        else:
+            labels["prediction"].visible = False
+
+    def _update_prediction_probe_view(self) -> None:
+        """
+        Update the prediction time series of the prediction panel.
+
+        The model curve covers the whole horizon (reconstruction inside the
+        data window, prediction beyond), the original data ends at the
+        boundary, and the clean truth continues beyond it; missing segments
+        are masked with NaN so the lines break instead of closing. The title
+        carries the current probe position.
+
+        :return: None
+        :rtype: None
+        """
+        result = self._result
+        signal = self._signal
+        if result is None or result.n_modes == 0 or signal is None \
+                or self._prediction is None or self._truth is None:
+            self._predict_probe_source.data = dict(t=[], model=[], original=[],
+                                                   truth=[])
+            return
+        steps = self._prediction_steps()
+        probe = min(round(self._probe_slider.value / signal.dx), signal.n_space - 1)
+        horizon_time = signal.dt * np.arange(signal.n_time + steps)
+        original = np.concatenate([signal.samples[probe, :],
+                                   np.full(steps, np.nan)])
+        truth = np.concatenate([np.full(signal.n_time, np.nan), self._truth[probe, :]])
+        model = np.concatenate([self._reconstruction[probe, :],
+                                self._prediction[probe, :]])
+        self._predict_probe_source.data = dict(t=horizon_time, model=model,
+                                               original=original, truth=truth)
+        boundary = (signal.n_time - 1) * signal.dt
+        self._probe_boundary_span.location = boundary
+        self._probe_cursor_span.location = self._predict_time_slider.value
+        self._probe_data_box.right = boundary
+        self._predict_probe_figure.title.text = (f"original vs. prediction at the "
+                                                 f"probe point x = "
+                                                 f"{self._probe_slider.value:.2f}")
+        # fixed y-range over the whole horizon (honest scaling under playback);
+        # the x-window is static inside the data window and slides with the
+        # cursor once the prediction begins (strip chart, cursor at the right
+        # edge) — identical in both prediction views
+        vmax = max(float(np.abs(original[np.isfinite(original)]).max()), 1e-12)
+        vmax = max(vmax, float(np.abs(model).max()),
+                   float(np.abs(truth[np.isfinite(truth)]).max()))
+        self._predict_probe_figure.y_range.start = -1.05 * vmax
+        self._predict_probe_figure.y_range.end = 1.05 * vmax
+        window_start, window_end = self._prediction_window()
+        self._predict_probe_figure.x_range.start = window_start
+        self._predict_probe_figure.x_range.end = window_end
+        self._position_prediction_labels(self._probe_labels, window_start,
+                                         window_end,
+                                         self._predict_probe_figure.y_range.end)
+
+    def _update_prediction_error_view(self) -> None:
+        """
+        Update the prediction-error curve and the readout of the panel.
+
+        The error is the root mean square of the model deviation over space
+        against the reference: the original data inside the window
+        (reconstruction error) and the clean truth beyond the boundary
+        (prediction error). The readout reports the current time, the stage,
+        and the local and window-maximum error.
+
+        :return: None
+        :rtype: None
+        """
+        result = self._result
+        signal = self._signal
+        if result is None or result.n_modes == 0 or signal is None \
+                or self._reconstruction is None or self._prediction is None \
+                or self._truth is None:
+            self._predict_error_source.data = dict(t=[], error=[])
+            self._prediction_error = None
+            return
+        steps = self._prediction_steps()
+        error_window = np.sqrt(np.mean((self._reconstruction - signal.samples) ** 2,
+                                       axis=0))
+        error_future = np.sqrt(np.mean((self._prediction - self._truth) ** 2, axis=0))
+        error = np.concatenate([error_window, error_future])
+        self._prediction_error = error
+        horizon_time = signal.dt * np.arange(signal.n_time + steps)
+        self._predict_error_source.data = dict(t=horizon_time, error=error)
+        boundary = (signal.n_time - 1) * signal.dt
+        self._error_boundary_span.location = boundary
+        self._error_cursor_span.location = self._predict_time_slider.value
+        self._error_data_box.right = boundary
+        # fixed y-range owned by the app (honest scaling of exploding errors);
+        # the x-window follows the same static-then-sliding rule as the
+        # forecast figure so both time axes stay aligned
+        vmax = max(float(error.max()), 1e-12)
+        self._predict_error_figure.y_range.start = 0.0
+        self._predict_error_figure.y_range.end = 1.05 * vmax
+        window_start, window_end = self._prediction_window()
+        self._predict_error_figure.x_range.start = window_start
+        self._predict_error_figure.x_range.end = window_end
+        self._position_prediction_labels(self._error_labels, window_start,
+                                         window_end,
+                                         self._predict_error_figure.y_range.end)
+
+    def _update_prediction_readout(self) -> None:
+        """
+        Update the prediction readout for the current cursor position.
+
+        The readout reports the stage (data window or prediction), the distance
+        beyond the data window, the local RMS error, and the maximum error over
+        the prediction window.
+
+        :return: None
+        :rtype: None
+        """
+        result = self._result
+        signal = self._signal
+        if result is None or result.n_modes == 0 or signal is None \
+                or self._prediction is None or self._prediction_error is None:
+            self._predict_div.text = "no modes fitted"
+            return
+        steps = self._prediction_steps()
+        t_index = min(round(self._predict_time_slider.value / signal.dt),
+                      signal.n_time - 1 + steps)
+        stage = ("prediction" if t_index >= signal.n_time else "data window")
+        beyond = max(t_index - (signal.n_time - 1), 0)
+        beyond_text = (f" · {beyond * signal.dt:.2f} s beyond the data window"
+                       if beyond > 0 else "")
+        self._predict_div.text = (
+            f"<b>t = {self._predict_time_slider.value:.2f} s</b> · {stage}"
+            f"{beyond_text}<br>"
+            f"RMS error at t: {self._prediction_error[t_index]:.3e} · "
+            f"max over the prediction window: "
+            f"{float(self._prediction_error[signal.n_time:].max()):.3e}"
+        )
+
+    def _update_prediction_views(self) -> None:
+        """
+        Update both prediction views and the readout.
+
+        Called whenever the model quantities change (refit, sort, eigenvalue or
+        amplitude edits, weights, morph, reset, horizon change) — not per
+        animation tick of the other panels, whose shared cursor does not touch
+        the prediction views.
+
+        :return: None
+        :rtype: None
+        """
+        self._update_prediction_probe_view()
+        self._update_prediction_error_view()
+        self._update_prediction_readout()
+
+    def _on_n_pred_change(self, attr: str, old: object, new: object) -> None:
+        """
+        React to a prediction-horizon change by recomputing the prediction.
+
+        The horizon only resizes the prediction window: no refit is needed,
+        but the truth, the fields, the slider bounds, and all prediction views
+        follow. Typed values are clamped against the declared bounds.
 
         :param attr: name of the changed widget attribute
         :type attr: str
@@ -1996,8 +2538,104 @@ class DMDPlayground:
         :return: None
         :rtype: None
         """
-        self._update_mode_view()
-        self._update_time_view()
+        steps = min(max(int(new), 1), 5000)
+        if steps != int(new):
+            self._n_pred_spinner.value = steps
+            return
+        if self._result is None or self._signal is None:
+            return
+        self._recompute_truth()
+        self._recompute_fields()
+        self._update_predict_slider()
+        self._update_prediction_views()
+
+    def _on_probe_change(self, attr: str, old: object, new: object) -> None:
+        """
+        React to a probe-point change by refreshing the probe time series.
+
+        The probe snaps to the spatial grid; typed values outside the grid are
+        written back clamped.
+
+        :param attr: name of the changed widget attribute
+        :type attr: str
+        :param old: previous attribute value
+        :type old: object
+        :param new: new attribute value
+        :type new: object
+        :return: None
+        :rtype: None
+        """
+        if self._syncing_probe or self._signal is None:
+            return
+        signal = self._signal
+        index = min(max(round(float(new) / signal.dx), 0), signal.n_space - 1)
+        snapped = index * signal.dx
+        if abs(snapped - float(new)) > 1e-12:
+            self._syncing_probe = True
+            self._probe_slider.value = snapped
+            self._syncing_probe = False
+        self._update_prediction_probe_view()
+
+    def _on_predict_time_change(self, attr: str, old: object, new: object) -> None:
+        """
+        React to the prediction time cursor by refreshing the dependent views.
+
+        The cursor is independent of the shared time sliders of the other
+        panels (it reaches beyond the data window); the visible time window,
+        the cursor spans, and the readout follow it — the plot stays static
+        inside the data window and the axis slides once the prediction begins.
+
+        :param attr: name of the changed widget attribute
+        :type attr: str
+        :param old: previous attribute value
+        :type old: object
+        :param new: new attribute value
+        :type new: object
+        :return: None
+        :rtype: None
+        """
+        self._update_prediction_probe_view()
+        self._update_prediction_error_view()
+        self._update_prediction_readout()
+
+    def _on_predict_play(self, attr: str, old: bool, new: bool) -> None:
+        """
+        React to the prediction play toggle by starting or stopping its animation.
+
+        The prediction playback is independent of the shared playback of the
+        other panels: its cursor wraps over data window plus prediction window.
+
+        :param attr: name of the changed widget attribute
+        :type attr: str
+        :param old: previous toggle state
+        :type old: bool
+        :param new: new toggle state
+        :type new: bool
+        :return: None
+        :rtype: None
+        """
+        self._predict_play_toggle.label = "⏸ pause" if new else "▶ play"
+        if new and self._predict_periodic_callback is None:
+            self._predict_periodic_callback = self._doc.add_periodic_callback(
+                self._advance_predict_time, _PLAY_INTERVAL_MS)
+        elif not new and self._predict_periodic_callback is not None:
+            self._doc.remove_periodic_callback(self._predict_periodic_callback)
+            self._predict_periodic_callback = None
+
+    def _advance_predict_time(self) -> None:
+        """
+        Advance the prediction time cursor by one step, wrapping at the horizon.
+
+        :return: None
+        :rtype: None
+        """
+        signal = self._signal
+        if signal is None:
+            return
+        dt = signal.dt
+        total = signal.n_time + self._prediction_steps()
+        index = (round(self._predict_time_slider.value / dt) + 1) % total
+        self._predict_time_slider.value = index * dt
 
     def _on_recon_play(self, attr: str, old: bool, new: bool) -> None:
         """

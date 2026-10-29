@@ -20,6 +20,11 @@ Synthetic modal line fields on a uniform space-time grid.
   Gaussian noise) once at construction; `samples` is the real-valued field with
   shape `(n_space, n_time)`, one snapshot per column. Properties `space` and
   `time` return the grids.
+- `ModalSignal.evaluate_clean(t_values) -> np.ndarray` — the clean modal
+  superposition (offset + modes, NO noise) evaluated at arbitrary time values,
+  shape `(n_space, n_values)`; this is the ground truth for the prediction panel
+  (the clean continuation of the physics — future noise is unpredictable by
+  definition). On the stored time grid without noise it reproduces `samples`.
 - `generate_modes(n_modes, f_min, f_max, seed=None, phase_speed=10.0)` — automatic
   modal composition for the GUI: evenly spaced frequencies within the bounds
   (predictable DMD spectrum), dispersion-tied wavenumbers
@@ -36,6 +41,19 @@ The single wrapper around flowTorch.
   input dtype in the SVD/operator path), runs `flowtorch.analysis.DMD`, and
   converts modes, amplitudes, and eigenvalues back to numpy. `rank=0`-style
   "automatic" is expressed by passing `rank=None` (flowTorch optimal truncation).
+- `_symmetrize_amplitudes(modes, amplitudes, eigvals)` (private, applied inside
+  `fit_dmd`) — flowTorch solves the amplitudes from the first snapshot without
+  enforcing conjugate symmetry; for higher mode counts the solve noise breaks the
+  symmetry and `DMDResult.pairs` would fail to detect the pairs. The helper
+  detects conjugate pairs from the eigenvalues and mode shapes (both exactly
+  conjugate for real data; amplitudes are deliberately excluded — they are the
+  quantity being repaired) and replaces each pair's amplitudes with their
+  symmetric mean `(b_i + conj(b_j))/2`. The real-valued reconstruction is
+  invariant under this (a pair's contribution depends only on the symmetric
+  mean), so the symmetry is restored at no numerical cost. Note: flowTorch's own
+  `reconstruction`/`dynamics` properties are NOT used by dmdsim — they are
+  time-reversed for non-stationary data (`pt.vander` defaults to decreasing
+  powers, unlike `pt.linalg.vander` used by `DMD.predict`).
 
 ## `src/dmdsim/core/quantities.py`
 
@@ -60,8 +78,16 @@ The single wrapper around flowTorch.
 
 ## `src/dmdsim/core/synth.py`
 
-- `synthesize(modes, amplitudes, eigvals, dt, n_time) -> np.ndarray` — rebuilds the
-  real field `Re{Σ φᵢ·bᵢ·λᵢᵗ}` with integer time levels; works with modified
+- `synthesize_window(modes, amplitudes, eigvals, dt, t_start, n_steps) ->
+  np.ndarray` — rebuilds the real field `Re{Σ φᵢ·bᵢ·λᵢᵗ}` for the integer time
+  levels `t = t_start … t_start + n_steps − 1`; a window starting beyond the
+  fitted data range IS the DMD prediction (the linear model advanced with the
+  same formula — growing eigenvalues amplify, shrinking ones damp). Validated
+  against flowTorch's own operator-based `DMD.predict` (starting from the model
+  state at the window boundary both agree to 1e-8; see `test_synth.py`).
+- `synthesize(modes, amplitudes, eigvals, dt, n_time) -> np.ndarray` — the
+  special case `t_start = 0` (delegates to `synthesize_window`); rebuilds the
+  field over the fitted window with integer time levels; works with modified
   quantities (the playground). The `dt` argument is currently unused by the
   formula (integer powers of λ) and kept for API symmetry — see review finding O1.
 - `mirror_conjugates(values, pairs, sources=None) -> np.ndarray` — returns a copy
@@ -154,14 +180,39 @@ the figure plus the data source (and extras where needed):
   returns `(figure, source, line_renderer)` (the app sets the line color per
   theme); 500×380 (y-range fixed by the app).
 - `create_time_curves_figure()` — time view with the field along space at the
-  current time (1150×420, plain `Range1d`): original (black), reconstruction
-  (gray dashed), sum of selected modes (gray dash-dot), selected eigenvalue
-  contribution (thicker, pair color set by the app via the returned
-  renderer), and thin per-eigenvalue contribution lines in their pair colors
-  (`MultiLine` + hover) for all checked eigenvalues; four-column horizontal
-  legend centered OUTSIDE the frame above the plot; returns
-  `(figure, source, pair_source, selected_renderer, curve_renderers)`
+  current time (1150×420, plain `Range1d`): original (black), weighted
+  reconstruction (gray dashed), selected eigenvalue contribution (thicker, pair
+  color set by the app via the returned renderer), and thin per-eigenvalue
+  contribution lines in their pair colors (`MultiLine` + hover) for all modes
+  with a positive weight; with continuous mode weights the reconstruction curve
+  itself is the weighted sum, so no separate "sum of selected" curve is drawn;
+  three-column horizontal legend centered OUTSIDE the frame above the plot;
+  returns `(figure, source, pair_source, selected_renderer, curve_renderers)`
   with ``curve_renderers`` holding the theme-dependent reference lines.
+- `create_prediction_probe_figure(width=1150, height=420)` — prediction view:
+  the model curve (reconstruction inside the data window, prediction beyond
+  it), the original data as a solid segment ending at the boundary, and the
+  clean truth as a dotted segment beyond it (missing segments NaN-masked);
+  dashed boundary span + solid cursor span + a shaded data-window
+  `BoxAnnotation` (``level="underlay"``, fill = theme muted gray at 0.08
+  alpha, ``right`` = boundary time set by the app) so the reconstruction part
+  stays distinguishable while the axis slides; italic stage labels
+  ("reconstruction" / "prediction") positioned by the app over the visible
+  part of their region; the three-entry legend ("model", "original (data)",
+  "truth (clean continuation)") is a horizontal `ncols = 3` legend centered
+  OUTSIDE the frame above the plot (same pattern as the other views); the app
+  sets the dynamic title (probe position), the y-range, and the visible time
+  window (data window + peek while static, then a sliding strip chart — see
+  `_prediction_window`); returns `(figure, source, boundary_span,
+  cursor_span, data_box, labels, renderers)`.
+- `create_prediction_error_figure(width=1150, height=280)` — prediction error
+  over the whole horizon: RMS of the model deviation over space against the
+  stage-wise reference (original inside the window, clean truth beyond);
+  dashed boundary + cursor spans + the same shaded data-window box and stage
+  labels; y-range app-owned (honest scaling of exploding errors) and the time
+  window follows the same static-then-sliding rule as the forecast figure;
+  returns `(figure, source, boundary_span, cursor_span, data_box, labels,
+  error_renderer)`.
 
 Expected source columns are documented in each docstring; the app fills them in
 `_update_*` methods.
@@ -221,65 +272,115 @@ silences flowTorch's INFO logging at import time.
 
 - State: `_theme` (``"light"``/``"dark"``), `_cached_pairs`/`_fit_amplitudes`/
   `_fit_eigvals`/`_fit_modes` (editing baselines cached per fit and on
-  re-sort; the fit modes back the shape morph), `_locked_edit_indices`
+  re-sort; the fit modes back the shape morph), `_mode_weights`/`_mode_gains`
+  (per-eigenvalue scale factors: amplitude = fit · weight · gain, both real
+  and pair-mirrored so the conjugate symmetry is preserved), `_weight_sliders`
+  + `_weight_slider_by_mode` + `_pair_boxes` (the panel-5 slider grid; boxes
+  carry a pair color index for theme restyling), `_reconstruction`/
+  `_prediction`/`_truth`/`_prediction_error` (model fields over the data
+  window, the prediction window, the clean continuation, and the stage-wise
+  RMS error curve), `_locked_edit_indices`
   (unit-circle-locked drags are temporary and reset when another eigenvalue
   is selected), `_drag_cache` (marker positions for drag detection),
-  `_syncing_params`/`_syncing_morph` (guards for programmatic restores),
-  `_themed_divs` (registered theme-dependent elements), and the stored
-  stylesheets `_page_sheet`/`_tab_sheet`/`_mode_tab_sheet` (created once; a
-  theme switch regenerates their `css`).
+  `_syncing_params`/`_syncing_morph`/`_syncing_weights`/`_syncing_probe`
+  (guards for programmatic restores), `_themed_divs` (registered
+  theme-dependent elements), and the stored stylesheets
+  `_page_sheet`/`_tab_sheet`/`_mode_tab_sheet` (created once; a theme switch
+  regenerates their `css`).
 - `_build_widgets`: automatic-composition spinners (Nₘ, f_min, f_max, offset),
   time/noise widgets, rank (0 = automatic), auto-rerun select, styled Run
   button + "↺ reset parameters" button, status info box, shared mode sliders,
   the "standing ←→ traveling" morph slider (quadrature mix of the selected
   mode shape), FOUR synchronized time sliders in **seconds** ("t [s]", range
-  [0, (n_time − 1)·dt], step = Δt) and play toggles (panels 1, 2, 4, 5), mode
-  checkbox group, readout and propagation-direction info boxes, |b| scale
-  spinner, unit-circle lock toggle, and four "↺ reset to DMD fit" buttons
-  (one per panel 2–5, `self._reset_fit_buttons` keyed by panel).
+  [0, (n_time − 1)·dt], step = Δt) and play toggles (panels 1, 2, 4, 5), the
+  weight-slider container `_weights_layout` (children rebuilt per fit/sort),
+  readout and propagation-direction info boxes, |b| gain spinner (extra gain
+  on top of the panel-5 weight), unit-circle lock toggle, and FIVE "↺ reset
+  to DMD fit" buttons (one per panel 2–6, `self._reset_fit_buttons` keyed by
+  panel). Prediction panel (6) widgets: "prediction steps" spinner (the number
+  of future time levels n_pred, full user control 1–5000, default 150), "probe
+  x" slider (snaps to the spatial grid), an INDEPENDENT time slider covering
+  data + prediction (range [0, (n_time − 1 + n_pred)·dt]), its own play
+  toggle, and the prediction readout info box (placed in the slider row).
   Persistent info boxes are registered for theming; the theme stylesheets are
   created here.
 - `_build_layout`: application bar (title "DMD Playground" + dark-mode
   `Switch`) above `Tabs(tabs_location="left")`: "Start" (default landing tab:
-  DMD in a nutshell, workflow rows with per-step-accent Open buttons navigating
-  via `_make_goto`, tips), "1 · Signal" (composition + grid/noise + DMD fit
-  with Run/reset on the left, signal animation on the right), "2 · Eigenvalues"
-  (one control row: eigenvalue number, sort, |b| scale, unit-circle lock,
-  reset; eigenvalue plane + λᵗ dynamics), "3 · Spectrum" (reset button,
-  amplitude spectrum + growth-direction plane σ over c side by side), "4 ·
-  Mode shapes" (control row: eigenvalue number + "standing ←→ traveling"
-  morph sliders, reset; nested sub-tabs: Shape &amp; propagation (TWO grouped
-  subplots — quadratures Re + Im + faded fitted-Im reference in one axes
-  (the quarter-wavelength offset between the quadratures is directly
-  visible) and the traveling wave, 615×340, shared x-range, constant
-  y-ruler sized by the fit, direction arrow scaling with the net
-  propagation t·|c| (hidden for standing waves), direction readout + time
-  slider + play below) / Phase), "5 ·
-  Reconstruction" (reset in the time-slider row). All
-  panels stay alive while hidden; the layout root, main tabs, and nested tabs
-  are stored for in-place theming. The root is NOT added here — `__init__`
-  adds it after `_attach_callbacks` (bokeh resolves incoming events via the
-  models subscribed at attach time; `on_click` after `add_root` never fires).
+  DMD in a nutshell incl. the prediction sentence, workflow rows with
+  per-step-accent Open buttons navigating via `_make_goto`, tips), "1 ·
+  Signal" (composition + grid/noise + DMD fit with Run/reset on the left,
+  signal animation on the right), "2 · Eigenvalues" (one control row:
+  eigenvalue number, sort, |b| gain, unit-circle lock, reset; eigenvalue
+  plane + λᵗ dynamics), "3 · Spectrum" (reset button, amplitude spectrum +
+  growth-direction plane σ over c side by side), "4 · Mode shapes" (control
+  row: eigenvalue number + "standing ←→ traveling" morph sliders, reset;
+  nested sub-tabs: Shape & propagation (TWO grouped subplots — quadratures
+  Re + Im + faded fitted-Im reference in one axes and the traveling wave,
+  615×340, shared x-range, constant y-ruler sized by the fit, direction arrow
+  scaling with the net propagation t·|c| (hidden for standing waves),
+  direction readout + time slider + play below) / Phase), "5 ·
+  Reconstruction" (control row with time slider/play/reset, the weight-slider
+  grid, the time-curves figure, hints + readout), "6 · Prediction" (control
+  row: prediction steps + probe + reset; the original-vs-prediction forecast
+  figure (1150×420, outside 3-column legend); slider + play + readout row;
+  the error figure (1150×280) below — both time axes width-aligned; two
+  hints). All panels stay alive while hidden; the layout root, main tabs, and
+  nested tabs are stored for in-place theming. The root is NOT added here —
+  `__init__` adds it after `_apply_theme`/`_attach_callbacks` (bokeh resolves
+  incoming events via the models subscribed at attach time; `on_click` after
+  `add_root` never fires).
 - `_attach_callbacks`: parameter widgets → `_on_parameter_change` (refit on
   auto-rerun, otherwise mark stale); Run button → `_run_dmd`; reset buttons →
-  `_reset_signal_parameters` (panel 1) and `_reset_to_fit` (panels 2–5, panel
-  5 with ``reselect=True``); eigenvalue-number sliders →
-  `_on_mode_slider_change` (two-way sync); checkbox → `_on_view_change`; time
-  sliders (four) → `_on_time_change` (two-way sync); play toggles →
-  `_set_playback` (synced labels/states, one shared periodic callback);
-  eigenvalue source data → `_on_eigenvalue_drag`; |b| scale →
-  `_on_amplitude_change`; sort select → `_on_sort_change`.
+  `_reset_signal_parameters` (panel 1) and `_reset_to_fit` (panels 2–6);
+  eigenvalue-number sliders → `_on_mode_slider_change` (two-way sync); weight
+  sliders → `_on_weight_change` (per mode, partner mirrored); time sliders
+  (four) → `_on_time_change` (two-way sync); play toggles → `_set_playback`
+  (synced labels/states, one shared periodic callback); eigenvalue source
+  data → `_on_eigenvalue_drag`; |b| gain → `_on_amplitude_change`; sort
+  select → `_on_sort_change`; prediction panel: steps → `_on_n_pred_change`
+  (recomputes truth/fields, NO refit), probe → `_on_probe_change` (snaps to
+  the grid), time slider → `_on_predict_time_change` (cursor spans +
+  readout), play → `_on_predict_play` (OWN periodic callback,
+  independent of the shared playback; `_advance_predict_time` wraps over
+  data + prediction).
   - `_run_dmd`: `_build_signal` (uses `generate_modes`) → constant-signal guard
     (friendly message) → rank resolution (0 = automatic: exact rank 2·n_modes
     (+1 with offset) of the clean composition; flowTorch optimal truncation when
     noise is on) → `fit_dmd` wrapped in try/except (`AssertionError`,
     `IndexError`, `RuntimeError`, `ValueError`) so `torch.linalg` failures land
     as a red message in the status box while the previous views stay → sort by
-    the selected criterion → cache pairs/fit amplitudes/fit eigenvalues →
-    recompute reconstruction → update all views and the info box (rank
-    automatic + round-trip error when automatic, otherwise only the error).
+    the selected criterion → `_recompute_truth` (clean continuation over the
+    prediction window) + `_recompute_fields` (reconstruction AND prediction
+    from the current quantities) → update all views (including
+    `_update_mode_weights`, `_update_time_view` — which must be called
+    explicitly now that the checkbox side effect is gone — and
+    `_update_prediction_views`) → info box (rank automatic + round-trip error
+    when automatic, otherwise only the error).
+  - `_prediction_steps()`: number of prediction steps (clamped spinner value).
+  - `_prediction_window()`: the visible time window of both prediction views —
+    the data window plus a small peek into the forecast (10 % of the data
+    window, capped to a quarter of the prediction window) while the cursor is
+    inside it (STATIC frame), then a sliding strip chart of that frame width
+    with the cursor at a fixed offset and the peek always ahead, clamped at
+    the horizon end.
+  - `_position_prediction_labels(labels, start, end, y_end)`: centers the
+    "reconstruction"/"prediction" stage labels over the visible intersection
+    of their region with the time window at 70 % of the y-range (hidden while
+    a region is not visible).
+  - `_recompute_fields()`: recomputes reconstruction (data window) and
+    prediction (continued synthesis `synthesize_window` beyond it) from the
+    CURRENT (edited) quantities — called by `_run_dmd`, `_reset_to_fit`,
+    `_on_eigenvalue_drag`, `_on_amplitude_change`, `_on_weight_change`,
+    `_apply_morph`, `_on_n_pred_change`.
+  - `_recompute_truth()`: clean continuation (`ModalSignal.evaluate_clean`)
+    over the prediction window; recomputed on refit and horizon changes.
+  - `_apply_scale_factors()`: writes `amplitudes = fit · weights · gains` into
+    the result (real factors, pair-mirrored → conjugate symmetry preserved
+    exactly).
   - `_mode_field(index, t_index)`: real contribution of one mode at one time level
-    (`Re{φᵢ·bᵢ·λᵢᵗ}`) used by the time view.
+    (`Re{φᵢ·bᵢ·λᵢᵗ}` — valid for any integer t_index, also inside the
+    prediction window since the amplitudes already carry weight·gain) used by
+    the time and prediction views.
   - `_phase_slopes()`: unwrapped phase slope κ (wavenumber) of every mode
     shape; used by the propagation-direction readout.
   - `_phase_velocities()`: signed phase velocity c = −2πf/κ per mode (zero for
@@ -305,15 +406,25 @@ silences flowTorch's INFO logging at import time.
     unpaired modes gray) shared by eigenvalue plane, dynamics markers,
     spectrum, and reconstruction.
   - `_update_*` methods: `_update_field_view` (fixed y-range for the signal
-    view), `_update_time_limits` (fixed y-range for the reconstruction view),
-    `_update_quantities` (editing-state cache + marker/spectrum
-    refresh), `_update_eigenvalue_markers` (stability pair colors + selection
-    emphasis in both complex-plane plots; guarded against the drag callback),
+    view), `_update_time_limits` (fixed y-range for the reconstruction view,
+    sized from the reconstruction and the original signal over ALL time
+    levels — constant during playback; refreshed on refit and
+    eigenvalue-amplitude-morph-weight edits),
+    `_update_quantities` (editing-state cache + weights/gains reset to one +
+    marker/spectrum refresh), `_update_eigenvalue_markers` (stability pair
+    colors + selection emphasis in both complex-plane plots; guarded against
+    the drag callback),
     `_update_spectrum` (pair colors, selection emphasis, Nyquist spans and
     axis, growth-direction plane σ over phase velocity c = −2πf/κ with
     data-driven axis ranges),
-    `_update_mode_slider`/`_update_time_slider` (bounds + clamping of
-    the synced sliders), `_update_mode_view` (fills the quadrature and phase
+    `_update_mode_slider`/`_update_time_slider`/`_update_predict_slider`
+    (bounds + clamping of the synced sliders; the prediction slider covers
+    data + horizon and is independent),
+    `_update_mode_weights`/`_weight_box` (rebuilds the panel-5 slider grid:
+    one slider per eigenvalue spanning 0–1, conjugate pairs grouped inside
+    one pair-colored bordered box — pairs first, then unpaired modes in gray
+    boxes, rows of four; sliders created at the current weight so no change
+    callback fires), `_update_mode_view` (fills the quadrature and phase
     sources incl. the fitted references, sizes the constant quadrature
     y-ruler, and refreshes the space-time view), `_update_space_time_view`
     (heatmap of the selected mode's contribution over x and t with symmetric
@@ -323,30 +434,44 @@ silences flowTorch's INFO logging at import time.
     wave at the current time, fixed envelope y-range, direction arrow, and the
     κ/λ_w/c readout incl. the eigenvalue-side line
     "Im λ = … → eigenvalue above/below the real axis (f ≷ 0)"),
-    `_update_mode_select` (resets selection before
-    relabeling to avoid stale indices), `_update_time_view` (curves + per-
-    eigenvalue pair lines + selected-line color + λᵗ trail), `_update_readout`,
-    `_update_time_limits` (sizes the reconstruction view's fixed y-range from
-    the reconstruction and the original signal over ALL time levels —
-    constant under checkbox toggles and during playback; refreshed on refit
-    and eigenvalue-amplitude-morph edits). All app-managed figure ranges are
-    plain `Range1d` objects created in the builders (a bokeh `DataRange1d`
-    recomputes client-side and ignores the server's writes — see AGENTS.md).
+    `_update_time_view` (curves + per-eigenvalue pair lines for all modes
+    with positive weight + selected-line color + λᵗ trail),
+    `_update_readout`, `_update_prediction_probe_view` (the prediction time
+    series over the whole horizon with NaN-masked segments, boundary + cursor
+    spans, shaded data-window box, dynamic probe title, app-owned y-range and
+    the static-then-sliding time window — the model curve continues from
+    reconstruction into prediction at the probe point),
+    `_update_prediction_error_view` (RMS-over-space error
+    curve vs the stage-wise reference + boundary/cursor spans +
+    `_prediction_error` cache), `_update_prediction_readout` (stage, distance
+    beyond the window, local + window-maximum RMS error),
+    `_update_prediction_views` (all four; called on refit/sort/edit/reset/
+    horizon changes — NOT per animation tick of the other panels). All
+    app-managed figure ranges are plain `Range1d` objects created in the
+    builders (a bokeh `DataRange1d` recomputes client-side and ignores the
+    server's writes — see AGENTS.md).
   - `_reset_signal_parameters`: restores `_DEFAULT_SIGNAL_PARAMS` under the
     `_syncing_params` guard (change callbacks idle, mutual frequency bounds
     set explicitly), then one refit.
-  - `_reset_to_fit(reselect=False)`: writes the cached fit baselines
+  - `_reset_to_fit()`: writes the cached fit baselines
     (`_fit_eigvals`/`_fit_amplitudes`/`_fit_modes`) back into the result,
-    clears locked edits and the drag cache, resets the |b| scale to 1 and the
-    morph slider to 1, recomputes the reconstruction, and refreshes the
-    quantity, mode-shape, and time views; panel 5 additionally re-selects all
-    modes via `_update_mode_select`.
+    clears locked edits and the drag cache, resets the |b| gain to 1, the
+    morph slider to 1, and all mode weights/gains to one, recomputes the
+    fields, rebuilds the weight sliders at their neutral values, and
+    refreshes the quantity, mode-shape, time, and prediction views (all
+    panels 2–6 share this behavior).
   - `_on_eigenvalue_drag`: applies dragged eigenvalues with conjugate
     mirroring (cached pairs), restores the source after backspace deletions,
-    recomputes the reconstruction, and refreshes spectrum + time views; the
-    status box reports the max deviation from the original.
-  - `_on_amplitude_change`: scales the selected eigenvalue's amplitude (and its
-    conjugate partner) relative to the fitted baseline; clamps typed values.
+    recomputes reconstruction + prediction, and refreshes spectrum + time +
+    prediction views; the status box reports the max deviation from the
+    original.
+  - `_on_amplitude_change`: applies the selected eigenvalue's extra gain (and
+    its conjugate partner's) on top of the mode weight — total scale =
+    weight · gain; clamps typed values.
+  - `_on_weight_change(index)`: applies one eigenvalue's weight (0 = silenced,
+    1 = fitted contribution), mirrors the conjugate partner's slider and
+    factor under the `_syncing_weights` guard, and refreshes the spectrum,
+    time, and prediction views.
   - `_on_theme_switch` / `_apply_theme`: in-place theming — restyles the
     registered figures and Divs (headers, hints, info boxes, workflow entries,
     buttons), updates the theme-dependent renderer colors, and regenerates the

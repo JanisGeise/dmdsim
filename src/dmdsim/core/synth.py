@@ -4,6 +4,41 @@
 import numpy as np
 
 
+def synthesize_window(modes: np.ndarray, amplitudes: np.ndarray, eigvals: np.ndarray,
+                      dt: float, t_start: int, n_steps: int) -> np.ndarray:
+    """
+    Rebuild a real-valued line field for a window of integer time levels.
+
+    Implements :math:`x(s, t) = \\Re\\left\\{\\sum_i \\phi_i(s)\\, b_i\\, \\lambda_i^t\\right\\}`
+    for the integer time levels :math:`t = t_{start}, \\ldots, t_{start} + n_{steps} - 1`.
+    A window starting beyond the fitted data range is the DMD prediction: the linear
+    model is advanced with the same formula, so growing eigenvalues
+    (:math:`|\\lambda| > 1`) amplify the field and shrinking ones damp it.
+
+    :param modes: complex mode shapes with one mode per column, shape ``(n_space, n_modes)``
+    :type modes: np.ndarray
+    :param amplitudes: complex spectral coefficients :math:`b_i`, shape ``(n_modes,)``
+    :type amplitudes: np.ndarray
+    :param eigvals: complex discrete-time eigenvalues :math:`\\lambda_i`, shape ``(n_modes,)``
+    :type eigvals: np.ndarray
+    :param dt: time step between consecutive time levels; only used for consistency
+        of the input quantities, the synthesis itself works with integer powers
+    :type dt: float
+    :param t_start: first integer time level of the window
+    :type t_start: int
+    :param n_steps: number of time levels of the window
+    :type n_steps: int
+    :return: real-valued rebuilt field with one snapshot per column, shape ``(n_space, n_steps)``
+    :rtype: np.ndarray
+    """
+    assert t_start >= 0, f"The start time level must be non-negative, got: {t_start}"
+    assert n_steps >= 1, f"The number of steps must be at least 1, got: {n_steps}"
+    # time dynamics of each mode are the amplitude times the eigenvalue powers
+    time_dynamics = amplitudes[:, None] * eigvals[:, None] ** np.arange(t_start,
+                                                                        t_start + n_steps)
+    return np.real(modes @ time_dynamics)
+
+
 def synthesize(modes: np.ndarray, amplitudes: np.ndarray, eigvals: np.ndarray, dt: float,
                n_time: int) -> np.ndarray:
     """
@@ -27,9 +62,7 @@ def synthesize(modes: np.ndarray, amplitudes: np.ndarray, eigvals: np.ndarray, d
     :return: real-valued rebuilt field with one snapshot per column, shape ``(n_space, n_time)``
     :rtype: np.ndarray
     """
-    # time dynamics of each mode are the amplitude times the eigenvalue powers
-    time_dynamics = amplitudes[:, None] * eigvals[:, None] ** np.arange(n_time)
-    return np.real(modes @ time_dynamics)
+    return synthesize_window(modes, amplitudes, eigvals, dt, 0, n_time)
 
 
 def mirror_conjugates(values: np.ndarray, pairs: list[tuple[int, int]],

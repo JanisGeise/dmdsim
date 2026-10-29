@@ -6,7 +6,7 @@ import numpy as np
 from bokeh.palettes import RdBu
 from bokeh.plotting import figure
 from bokeh.models import (Span, Arrow, Label, Range1d, ColorBar, HoverTool,
-                          NormalHead, GlyphRenderer, PointDrawTool,
+                          NormalHead, GlyphRenderer, PointDrawTool, BoxAnnotation,
                           ColumnDataSource, LinearColorMapper)
 
 from dmdsim.app.styling import halfplane_colors
@@ -439,13 +439,15 @@ def create_time_curves_figure() -> tuple[figure, ColumnDataSource, ColumnDataSou
     """
     Create the time view showing the field along space at the current time.
 
-    Shows the original field, the reconstruction, the sum over all checked
-    eigenvalues, the selected eigenvalue's contribution (its color is set by the
-    application to the pair color), and thin per-eigenvalue contribution lines
-    in their pair colors for all checked eigenvalues.
+    Shows the original field, the weighted reconstruction, the selected
+    eigenvalue's contribution (its color is set by the application to the pair
+    color), and thin per-eigenvalue contribution lines in their pair colors for
+    all modes with a positive weight. With continuous mode weights the
+    reconstruction curve itself is the weighted sum, so no separate
+    "sum of selected" curve is drawn.
 
     :return: figure, the main data source (columns ``s``, ``original``,
-        ``reconstruction``, ``selected``, and ``selection``), the per-eigenvalue
+        ``reconstruction``, and ``selected``), the per-eigenvalue
         multi-line source (columns ``xs``, ``ys``, ``colors``, ``index``, and
         ``f``), and the renderer of the selected-eigenvalue line (the
         application sets its glyph color)
@@ -455,30 +457,25 @@ def create_time_curves_figure() -> tuple[figure, ColumnDataSource, ColumnDataSou
     # would recompute it client-side and ignore the application's writes)
     fig = figure(width=1150, height=420, title="field at current time",
                  y_range=Range1d(-1.0, 1.0))
-    source = ColumnDataSource(dict(s=[], original=[], reconstruction=[], selected=[],
-                                   selection=[]))
+    source = ColumnDataSource(dict(s=[], original=[], reconstruction=[], selected=[]))
     original_renderer = fig.line(x="s", y="original", source=source,
                                  legend_label="original", color="black", line_width=2)
     reconstruction_renderer = fig.line(x="s", y="reconstruction", source=source,
                                        legend_label="reconstruction", color="#5f6368",
                                        line_width=2, line_dash="dashed")
-    selection_renderer = fig.line(x="s", y="selection", source=source,
-                                  legend_label="sum of selected modes",
-                                  color="#9aa0a6", line_width=2, line_dash="dashdot")
     selected_renderer = fig.line(x="s", y="selected", source=source,
                                  legend_label="selected eigenvalue", color="#9aa0a6",
                                  line_width=3)
     curve_renderers = {"original": original_renderer,
-                       "reconstruction": reconstruction_renderer,
-                       "selection": selection_renderer}
+                       "reconstruction": reconstruction_renderer}
     pair_source = ColumnDataSource(dict(xs=[], ys=[], colors=[], index=[], f=[]))
     pair_renderer = fig.multi_line(xs="xs", ys="ys", source=pair_source,
                                    line_color="colors", line_width=1.5)
     fig.add_tools(HoverTool(renderers=[pair_renderer], line_policy="nearest",
                             tooltips=[("eigenvalue no.", "@index"),
                                       ("f", "@f{0.00} Hz")]))
-    # four-column legend, centered outside the frame above the plot
-    fig.legend.ncols = 4
+    # three-column legend, centered outside the frame above the plot
+    fig.legend.ncols = 3
     fig.legend.orientation = "horizontal"
     fig.legend.location = "center"
     fig.add_layout(fig.legend[0], "above")
@@ -486,6 +483,175 @@ def create_time_curves_figure() -> tuple[figure, ColumnDataSource, ColumnDataSou
     fig.xaxis.axis_label = "x"
     fig.yaxis.axis_label = "y"
     return fig, source, pair_source, selected_renderer, curve_renderers
+
+
+def _prediction_stage_labels() -> dict[str, Label]:
+    """
+    Create the region annotations of the prediction figures.
+
+    Two prominent label chips — "reconstruction" for the shaded data part and
+    "prediction" for the unshaded forecast part — help the viewer read the
+    stages: bold-italic 13 px text on a semi-transparent rounded background
+    with a thin border, so the labels stay readable over the curves. The
+    application positions them over the visible part of their region on every
+    refresh (they start hidden at the origin) and re-colors them on theme
+    switches (reconstruction in the theme text color, prediction in the
+    prediction accent, background in the plot background).
+
+    :return: labels keyed by ``"reconstruction"`` and ``"prediction"``
+    :rtype: dict[str, Label]
+    """
+    styles = dict(text_font_size="13px", text_font_style="italic",
+                  text_align="center", visible=False,
+                  background_fill_alpha=0.8, padding=(2, 8),
+                  border_line_alpha=0.6, border_radius=4)
+    reconstruction = Label(x=0.0, y=0.0, text="reconstruction",
+                           text_color="#202124", background_fill_color="#ffffff",
+                           border_line_color="#9aa0a6", **styles)
+    prediction = Label(x=0.0, y=0.0, text="prediction", text_color="#00897b",
+                       background_fill_color="#ffffff",
+                       border_line_color="#00897b", **styles)
+    return {"reconstruction": reconstruction, "prediction": prediction}
+
+
+def _data_window_box() -> BoxAnnotation:
+    """
+    Create the shaded background of the data (reconstruction) window.
+
+    The box spans the data window in data coordinates (the application sets
+    ``right`` to the boundary time) and renders below the glyphs, so the
+    reconstruction part stays distinguishable from the prediction part while
+    the time axis slides. The fill color is updated by the application on
+    theme switches.
+
+    :return: the box annotation (``left`` fixed at zero, ``right`` set by the app)
+    :rtype: BoxAnnotation
+    """
+    return BoxAnnotation(left=0.0, right=1.0, fill_color="#9aa0a6", fill_alpha=0.08,
+                         line_alpha=0.0, level="underlay")
+
+
+def create_prediction_probe_figure(width: int = 1150, height: int = 420) -> tuple[
+        figure, ColumnDataSource, Span, Span, BoxAnnotation,
+        dict[str, GlyphRenderer]]:
+    """
+    Create the prediction view of the prediction panel.
+
+    Shows the field value at the probe point over the whole horizon: the model
+    curve (reconstruction inside the data window, prediction beyond it), the
+    original data as a solid segment that ends at the data boundary, and the
+    clean truth as a dotted segment beyond it. A dashed span marks the data
+    boundary and a solid span marks the current prediction time; both are
+    positioned by the application, as is the shaded data-window background.
+    The three-entry legend is a horizontal column legend centered OUTSIDE the
+    frame above the plot.
+
+    :param width: figure width in pixels, defaults to 1150
+    :type width: int, optional
+    :param height: figure height in pixels, defaults to 420
+    :type height: int, optional
+    :return: figure, the data source (columns ``t``, ``model``, ``original``,
+        and ``truth``), the boundary span, the cursor span, the shaded
+        data-window box (the application updates ``right`` and the fill
+        color), the stage labels (``"reconstruction"``/``"prediction"``,
+        positioned by the application), and a dictionary of the
+        theme-dependent renderers with the keys ``model``, ``original``, and
+        ``truth``
+    :rtype: tuple[figure, ColumnDataSource, Span, Span, BoxAnnotation,
+        dict[str, Label], dict[str, GlyphRenderer]]
+    """
+    # plain Range1d: the application owns both axis ranges
+    fig = figure(width=width, height=height,
+                 title="original vs. prediction at the probe point",
+                 y_range=Range1d(-1.0, 1.0))
+    source = ColumnDataSource(dict(t=[], model=[], original=[], truth=[]))
+    model_renderer = fig.line(x="t", y="model", source=source,
+                              legend_label="model", color="#00897b", line_width=2.5)
+    original_renderer = fig.line(x="t", y="original", source=source,
+                                 legend_label="original (data)", color="black",
+                                 line_width=2)
+    truth_renderer = fig.line(x="t", y="truth", source=source,
+                              legend_label="truth (clean continuation)", color="black",
+                              line_width=2, line_dash="dotted")
+    renderers = {"model": model_renderer, "original": original_renderer,
+                 "truth": truth_renderer}
+    fig.add_tools(HoverTool(renderers=[model_renderer], line_policy="nearest",
+                            tooltips=[("t", "@t{0.000} s"),
+                                      ("model", "@model")]))
+    # three-column legend, centered outside the frame above the plot
+    fig.legend.ncols = 3
+    fig.legend.orientation = "horizontal"
+    fig.legend.location = "center"
+    fig.add_layout(fig.legend[0], "above")
+    fig.legend.click_policy = "hide"
+    boundary_span = Span(dimension="height", location=0.0, line_color="gray",
+                         line_dash="dashed", line_width=1)
+    cursor_span = Span(dimension="height", location=0.0, line_color="#00897b",
+                       line_width=2)
+    data_box = _data_window_box()
+    labels = _prediction_stage_labels()
+    fig.add_layout(data_box)
+    fig.add_layout(boundary_span)
+    fig.add_layout(cursor_span)
+    fig.add_layout(labels["reconstruction"])
+    fig.add_layout(labels["prediction"])
+    fig.xaxis.axis_label = "t [s]"
+    fig.yaxis.axis_label = "y(x_probe, t)"
+    return fig, source, boundary_span, cursor_span, data_box, labels, renderers
+
+
+def create_prediction_error_figure(width: int = 1150, height: int = 280) -> tuple[
+        figure, ColumnDataSource, Span, Span, BoxAnnotation, GlyphRenderer]:
+    """
+    Create the prediction-error view of the prediction panel.
+
+    Shows the root-mean-square error of the model over space against the
+    reference over the whole horizon: inside the data window the reference is
+    the original data (reconstruction error), beyond it the clean continuation
+    of the modal composition (prediction error). A dashed span marks the data
+    boundary and a solid span marks the current prediction time; both are
+    positioned by the application, as is the shaded data-window background.
+    Both axis ranges are owned by the application: error growth from growing
+    eigenvalues is shown honestly and the time window follows the same
+    static-then-sliding rule as the forecast figure.
+
+    :param width: figure width in pixels, defaults to 1150
+    :type width: int, optional
+    :param height: figure height in pixels, defaults to 280
+    :type height: int, optional
+    :return: figure, the data source (columns ``t`` and ``error``), the
+        boundary span, the cursor span, the shaded data-window box (the
+        application updates ``right`` and the fill color), the stage labels
+        (``"reconstruction"``/``"prediction"``, positioned by the
+        application), and the error line renderer (the application sets its
+        glyph color)
+    :rtype: tuple[figure, ColumnDataSource, Span, Span, BoxAnnotation,
+        dict[str, Label], GlyphRenderer]
+    """
+    # plain Range1d: the application owns both axis ranges
+    fig = figure(width=width, height=height,
+                 title="prediction error (RMS over space) over the whole horizon",
+                 y_range=Range1d(0.0, 1.0))
+    source = ColumnDataSource(dict(t=[], error=[]))
+    error_renderer = fig.line(x="t", y="error", source=source, color="#c5221f",
+                              line_width=2)
+    fig.add_tools(HoverTool(renderers=[error_renderer], line_policy="nearest",
+                            tooltips=[("t", "@t{0.000} s"),
+                                      ("RMS error", "@error")]))
+    boundary_span = Span(dimension="height", location=0.0, line_color="gray",
+                         line_dash="dashed", line_width=1)
+    cursor_span = Span(dimension="height", location=0.0, line_color="#00897b",
+                       line_width=2)
+    data_box = _data_window_box()
+    labels = _prediction_stage_labels()
+    fig.add_layout(data_box)
+    fig.add_layout(boundary_span)
+    fig.add_layout(cursor_span)
+    fig.add_layout(labels["reconstruction"])
+    fig.add_layout(labels["prediction"])
+    fig.xaxis.axis_label = "t [s]"
+    fig.yaxis.axis_label = "RMS error"
+    return fig, source, boundary_span, cursor_span, data_box, labels, error_renderer
 
 
 if __name__ == "__main__":

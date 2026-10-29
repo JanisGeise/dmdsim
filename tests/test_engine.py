@@ -6,7 +6,7 @@ import numpy as np
 
 from dmdsim.core.engine import fit_dmd
 from dmdsim.core.synth import synthesize
-from dmdsim.signals.generator import Mode, ModalSignal
+from dmdsim.signals.generator import Mode, ModalSignal, generate_modes
 
 
 def _modal_signal() -> ModalSignal:
@@ -126,6 +126,34 @@ def test_invalid_input() -> None:
         fit_dmd(samples, dt=-1.0)
     with pytest.raises(AssertionError):
         fit_dmd(np.zeros(8), dt=0.01)
+
+
+def test_amplitude_symmetrization_restores_pairs() -> None:
+    """
+    Check that the engine's amplitude symmetrization restores the pair structure.
+
+    flowTorch solves the amplitudes from the first snapshot without enforcing
+    conjugate symmetry; for higher mode counts the solve noise breaks the
+    symmetry and the pair detection would fail. The engine symmetrizes the
+    amplitudes of eigenvalue/mode-conjugate pairs, which leaves the
+    reconstruction invariant (a pair's contribution depends only on the
+    symmetric mean) and makes the pairs detectable again.
+
+    :return: None
+    :rtype: None
+    """
+    generated = generate_modes(8, 1.0, 10.0, seed=42, phase_speed=10.0 / 3.0)
+    signal = ModalSignal(generated, dt=0.01, n_space=201, n_time=300, dx=0.005)
+    result = fit_dmd(signal.samples, dt=0.01, rank=16)
+    # all 8 physical waves are detected as conjugate pairs whose amplitudes
+    # are exactly conjugate after the symmetrization
+    assert len(result.pairs) == 8
+    for i, j in result.pairs:
+        assert abs(result.amplitudes[i] - np.conj(result.amplitudes[j])) <= 1e-8
+    # the reconstruction is unaffected (round trip at machine precision)
+    rebuilt = synthesize(result.modes, result.amplitudes, result.eigvals, dt=0.01,
+                         n_time=signal.n_time)
+    assert np.allclose(rebuilt, signal.samples, rtol=1e-6, atol=1e-6)
 
 
 if __name__ == "__main__":
