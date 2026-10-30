@@ -207,7 +207,10 @@ GUI-independent and numpy-only; keep it that way.
   (`PLAN.md` untracked, `documentation/`, `steps.md` untracked). The panel
   screenshots are tracked in `docs/images/` (light theme, cropped to content
   + margin, ≤1200 px WebP); regenerate with `run/screenshot_tabs.py` +
-  `run/crop_screenshots.py` when the UI changes in a visible way.
+  `run/crop_screenshots.py` when the UI changes in a visible way. Keep the
+  README **course-agnostic**: never mention the ML-CFD course or specific
+  lectures there — present the project as a general interactive DMD teaching
+  tool (the origin/audience context lives in AGENTS.md and `PLAN.md`).
 - **App entry points**: `dmdsim-app` (console script) and
   `bokeh serve src/dmdsim/app` (directory app). The app modules use absolute
   imports (Bokeh's loader executes `main.py` outside the package context).

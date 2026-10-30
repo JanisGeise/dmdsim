@@ -12,8 +12,7 @@ with one click, and then play with every quantity it returns: drag eigenvalues
 around the unit circle while the reconstruction follows live, morph standing
 waves into traveling ones, blend or silence single modes with weight sliders,
 and advance the model beyond the data window to watch the prediction — and
-its error — grow. Developed as teaching material for the ML-CFD course at
-TU Dresden; all DMD math is delegated to
+its error — grow. All DMD math is delegated to
 [flowTorch](https://github.com/FlowModelingControl/flowtorch).
 
 For transparency:
@@ -23,8 +22,7 @@ For transparency:
 > [OpenCode](https://opencode.ai) with models provided by
 > [ScaDS.AI](https://llm.scads.ai) (GLM-5.3-Flash for coding, alias-vision for
 > GUI screenshot review); the ScaDS.AI access is provided via
-> [TU Dresden](https://tu-dresden.de), where the project is developed as
-> teaching material for the ML-CFD course.
+> [TU Dresden](https://tu-dresden.de).
 
 ## Installation
 
