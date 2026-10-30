@@ -258,6 +258,15 @@ background #131313):
   both are fixed from inside the widget's shadow root. The slider's filled
   range is set inline by bokeh from `Slider.bar_color`
   (theme key `slider_connect`) — CSS cannot reach it.
+- `figure_header_html(title, essence, note, step, mode)` /
+  `try_chip_html(text, step, mode)` / `howto_html(bullets, background, step,
+  mode)` — HTML builders of the **explainer blocks** (M6): the figure header
+  replaces the canvas title (title + essence + CSS-only hover note with an
+  embedded `<style>` scoped to the Div's shadow root), the try chip carries
+  the always-visible experiments (accent background), and the how-to-read
+  expander is a native `<details>` (encoding bullets + optional pro-tip
+  background block with an accent left border). Assembled by `_explainer` in
+  `main.py`; regenerated on theme switches.
 - `header(text, step, mode)` / `header_styles(step, mode)` — colored section
   header element and its style dictionary (for re-theming existing widgets).
 - `hint(text, width=None, mode)` / `hint_styles(mode)` — muted inline
