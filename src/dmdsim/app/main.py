@@ -31,13 +31,14 @@ from dmdsim.app.figures import (create_direction_figure, create_eigenvalue_figur
                                 create_signal_curve_figure, create_space_time_figure,
                                 create_spectrum_figure, create_time_curves_figure)
 from dmdsim.app.styling import (PAIR_PALETTE, PAIR_PALETTE_DARK, THEMES,
-                                accent_button_styles, button_styles, header,
-                                header_styles, halfplane_colors, hint,
-                                hint_styles, info_box, info_styles,
+                                accent_button_styles, button_styles,
+                                figure_header_html, header, header_styles,
+                                halfplane_colors, hint, hint_styles,
+                                howto_html, info_box, info_styles,
                                 input_stylesheet, page_css,
                                 primary_button_styles, slider_stylesheet,
                                 step_colors, style_figure, switch_styles,
-                                tab_css, theme_colors)
+                                tab_css, theme_colors, try_chip_html)
 
 # keep the flowTorch info messages out of the application output
 logging.getLogger("flowtorch").setLevel(logging.WARNING)
@@ -75,101 +76,6 @@ _DEFAULT_SIGNAL_PARAMS: dict[str, float | int] = {
     "n_modes": 3, "f_min": 1.0, "f_max": 10.0, "dt": 0.01, "n_time": 300,
     "offset": 0.0, "noise": 0, "rank": 0,
 }
-
-_HINT_EIGENVALUES = ("Radius |λ| encodes growth/decay: outside the unit circle the mode "
-                     "grows, inside it decays. The angle encodes the frequency "
-                     "f = arg(λ) / (2π·dt). The shaded half planes mark the sign of "
-                     "Im λ (equivalently the frequency sign), and the small triangle "
-                     "above each eigenvalue points in the travel direction of its "
-                     "wave — it flips when the eigenvalue crosses the real axis. "
-                     "Drag an eigenvalue to edit it — its conjugate partner mirrors "
-                     "automatically and the reconstruction, spectrum, and spiral "
-                     "update live. With 'lock to unit circle' active, dragged "
-                     "eigenvalues stay neutral (|λ| = 1) and only their frequency "
-                     "changes. A refit (Run DMD or a signal change) restores the "
-                     "fitted values.")
-_HINT_DYNAMICS = ("Powers λᵗ of the selected mode in the complex plane, animated with "
-                  "the global time cursor: the trail spirals inward (decay), outward "
-                  "(growth) or orbits on a circle (neutral); the rotation speed is the "
-                  "frequency. Dragging an eigenvalue later reshapes this spiral live.")
-_HINT_SPECTRUM = ("Mode amplitude |b| (how strong each mode is) over frequency; "
-                  "conjugate pairs appear as mirror peaks and share their color. "
-                  "Position encodes stability (radius = growth/decay), the large "
-                  "marker is the selected eigenvalue, and the dashed lines mark the "
-                  "Nyquist limits ±1/(2·dt). The right-hand plane shows each "
-                  "mode's growth rate σ = Re(ln λ)/dt (horizontal) over its phase "
-                  "velocity c = −2πf/κ (vertical): above the zero line the wave "
-                  "travels toward +x, below it toward −x — conjugate partners "
-                  "coincide there (one physical wave), and dragging an eigenvalue "
-                  "across the real axis moves its point across the zero line, "
-                  "flipping the direction.")
-_HINT_MODE = ("Complex spatial shape φ(s): Re and Im form the wave profile, |φ| its "
-              "magnitude, and arg(φ) the local phase shift. A linear arg(φ) corresponds "
-              "to a wavenumber.")
-_HINT_TIME = ("The curves show the field at the current time: the original (black), "
-              "the weighted reconstruction (gray dashed, Σ φᵢ·wᵢ·gᵢ·bᵢ·λᵢᵗ), the "
-              "per-eigenvalue contributions of all modes with a positive weight in "
-              "their pair colors (hover to identify), and the selected eigenvalue's "
-              "contribution (thick, in its pair color). The time cursor is shared "
-              "with all panels.")
-_HINT_WEIGHTS = ("One slider per eigenvalue, 0 = silenced to 1 = full fitted "
-                 "contribution; conjugate partners move together (one physical wave, "
-                 "one box, one color). The weights multiply the fitted amplitudes — "
-                 "the reconstruction, the spectrum, and the prediction (panel 6) "
-                 "respond live. The panel-2 '|b| gain' is an extra gain on top: "
-                 "total scale = weight · gain.")
-_HINT_SIGNAL_ANIMATION = ("Animation of the created signal in the fixed window "
-                          "x ∈ [0, 1]: press play or drag the time slider to move in "
-                          "time. The same time cursor drives the reconstruction view.")
-_HINT_REAL = ("Real part of the mode shape φ(s); for a traveling wave it is a cosine "
-              "whose zero crossings are spaced by half a wavelength.")
-_HINT_IMAG = ("Imaginary part of the mode shape φ(s); real and imaginary part "
-              "together encode amplitude and spatial phase of the wave. The "
-              "'standing ←→ traveling' slider above scales this part: 1 is the "
-              "fitted traveling wave, 0 a pure standing pattern — the shape is "
-              "then an equal superposition of two opposite-traveling waves.")
-_HINT_PHASE = ("The phase arg(φ) is only defined modulo 2π, so it wraps at ±π "
-               "(faded points). The unwrapped line is continuous: its slope is the "
-               "wavenumber κ and its offset is the spatial phase shift of the wave.")
-_HINT_SPACETIME = ("The contribution Re{φ·b·λᵗ} of the selected mode over space "
-                   "(x) and time (t): the horizontal stripe spacing is the "
-                   "wavelength λ_w = 2π/κ — a property of the shape; the vertical "
-                   "spacing is the temporal period T = 1/f — a property of the "
-                   "eigenvalue; the stripe slope is the propagation speed "
-                   "c = −λ_w/T. Editing the eigenvalue rescales the vertical "
-                   "spacing and the slope while the horizontal spacing stays "
-                   "frozen; the 'standing ←→ traveling' slider changes the "
-                   "horizontal spacing. At t = 0 the pattern degenerates to "
-                   "vertical stripes (standing).")
-_HINT_DIRECTION = ("The wave contribution Re{φ·b·λᵗ} of the selected mode, animated "
-                   "with the time cursor: watch it travel. The arrow shows the "
-                   "propagation direction; the info box derives the wavenumber κ, "
-                   "the wavelength λ_w, and the phase velocity c from the phase "
-                   "slope. The eigenvalue's half plane sets the sign of f, which "
-                   "together with the sign of κ fixes the direction via "
-                   "c = −2πf/κ. The 'standing ←→ traveling' slider mixes in a "
-                   "counter-traveling wave: the animation slows down and turns "
-                   "into an in-place oscillation, and the arrow shrinks with "
-                   "the remaining net propagation.")
-_HINT_PREDICTION_PROBE = ("The model curve Σ φᵢ·bᵢ·λᵢᵗ continues seamlessly from the "
-                          "data window (reconstruction) into the future "
-                          "(prediction): the original data end at the dashed "
-                          "boundary and the clean truth continues beyond it "
-                          "(black dotted) — future noise is unpredictable by "
-                          "definition. Mode weights (panel 5) and eigenvalue "
-                          "edits reshape the prediction live: eigenvalues "
-                          "outside the unit circle amplify it, inside they "
-                          "damp it. The 'prediction steps' box sets how far "
-                          "the model is advanced and the slider end follows.")
-_HINT_PREDICTION_ERROR = ("RMS error of the model over space against the reference "
-                          "(original inside the window, clean truth beyond the "
-                          "dashed boundary): inside the window this is the "
-                          "reconstruction error; beyond it the prediction error "
-                          "reflects how the eigenvalues extrapolate — modes with "
-                          "|λ| > 1 amplify the error exponentially, modes with "
-                          "|λ| < 1 keep it bounded. With noise, the fit is "
-                          "contaminated and the prediction drifts from the clean "
-                          "physics.")
 
 
 def _spinner(title: str, value: float | int, low: float | int, high: float | int,
@@ -251,6 +157,12 @@ class DMDPlayground:
         self._locked_edit_indices: set[int] = set()
         self._drag_cache: tuple[np.ndarray, np.ndarray] = (np.array([]), np.array([]))
         self._themed_divs: list[tuple[UIElement, str, str]] = []
+        # explainer blocks (figure header + try chip + how-to expander); the
+        # parts are kept so a theme switch can regenerate the HTML
+        self._explainers: list[tuple[Div, Div, Div, dict]] = []
+        # in-canvas teaching notes (labels whose theme colors are updated on
+        # theme switches)
+        self._canvas_notes: list[tuple[Label, str]] = []
         # theme stylesheets (created once; a theme switch updates their css)
         self._page_sheet = GlobalInlineStyleSheet(css=page_css(self._theme))
         self._tab_sheet = InlineStyleSheet(css=tab_css(self._theme, vertical=True))
@@ -480,6 +392,22 @@ class DMDPlayground:
             (self._predict_probe_figure, "prediction"),
             (self._predict_error_figure, "prediction"),
         ]
+        # in-canvas teaching notes: short labels at the spot where the
+        # concept happens (theme colors updated in _apply_theme)
+        dynamics_note = Label(
+            x=0, y=-1.52,
+            text="inward spiral = decay · outward = growth · circle = neutral",
+            text_align="center", text_font_size="10px", text_color="#9aa0a6")
+        self._dynamics_figure.add_layout(dynamics_note)
+        self._canvas_notes.append((dynamics_note, "muted"))
+        space_note = Label(
+            x=0.04, y=2.76, text="λ_w ↔ horizontal · T ↕ vertical",
+            text_font_size="10px", text_color="#202124",
+            background_fill_color="#ffffff", background_fill_alpha=0.85,
+            border_line_color="#dadce0", border_line_alpha=0.6,
+            padding=(2, 6))
+        self._space_time_figure.add_layout(space_note)
+        self._canvas_notes.append((space_note, "chip"))
 
     def _build_layout(self) -> None:
         """
@@ -509,26 +437,25 @@ class DMDPlayground:
                                     width=100)
         self._theme_switch.on_change("active", self._on_theme_switch)
         app_bar = row(title_div, self._theme_switch, spacing=10)
-        # start panel: nutshell, workflow navigation, and tips
-        nutshell = self._themed_info(
-            "<b>DMD in a nutshell</b><br>"
-            "You measure a signal y(x, t) at many points in time — the snapshots are "
-            "stacked into the <b>snapshot matrix</b> "
-            "X = [y(x, t₀) … y(x, t<sub>N−1</sub>)]. DMD compares every snapshot with "
-            "the next one (the time-shifted matrix X′) and finds the linear operator "
-            "A ≈ X′X<sup>+</sup> that best advances the snapshots: X′ ≈ A X. The SVD "
-            "of X solves this eigenvalue problem: the <b>eigenvalues λ</b> tell each "
-            "mode how to evolve (angle = frequency, radius = growth/decay), the "
-            "<b>DMD modes φ</b> are the shapes, and the <b>amplitudes b</b> set their "
-            "strength. Every mode contributes φ·b·λ<sup>t</sup>, and the sum of all "
-            "modes reconstructs the signal: "
-            "y(x, t) ≈ Σ<sub>i</sub> φ<sub>i</sub>(x) · b<sub>i</sub> · λ<sub>i</sub>"
-            "<sup>t</sup>. Because every mode carries its own λ<sup>t</sup>, the "
-            "same formula also <b>predicts beyond the data window</b> — growing "
-            "eigenvalues amplify it, decaying ones damp it (panel 6).",
-            font_size="13px")
+        # start panel: the DMD pipeline as a clickable flow, the workflow
+        # navigation, and tips
         step_for_panel = {1: "setup", 2: "eigenvalues", 3: "spectrum", 4: "modes",
                           5: "reconstruction", 6: "prediction"}
+        stages = [("1 · signal", 1), ("2 · eigenvalues λ", 2),
+                  ("3 · spectrum |b|", 3), ("4 · modes φ", 4),
+                  ("5 · rebuild", 5), ("6 · predict", 6)]
+        flow_children = []
+        for index, (label, target) in enumerate(stages):
+            if index:
+                arrow = Div(text="→", width=20,
+                            styles={"text-align": "center",
+                                    "align-self": "center",
+                                    "font-size": "14px"})
+                flow_children.append(arrow)
+            button = Button(label=label, width=140)
+            button.on_click(self._make_goto(target))
+            self._themed(button, "btn", step_for_panel[target])
+            flow_children.append(button)
         descriptions = [
             ("1 · Signal", "design a traveling-wave signal and run the DMD fit", 1),
             ("2 · Eigenvalues", "inspect the fitted eigenvalues — drag them and watch "
@@ -564,10 +491,17 @@ class DMDPlayground:
             "above.",
             width=1000)
         start_panel = column(
-            nutshell,
-            self._themed_info("Work through the steps in order — or jump straight "
-                              "to any panel with the buttons on the right.",
-                              font_size="12px"),
+            self._themed_info("<b>DMD in a nutshell</b> — click a stage to "
+                              "jump in:", font_size="13px"),
+            row(*flow_children, spacing=6),
+            self._themed_info(
+                "Stack the snapshots X → fit A ≈ X′X<sup>+</sup> from the "
+                "shifted X′ (SVD) → <b>eigenvalues λ</b> (angle = frequency, "
+                "radius = growth) with <b>modes φ</b> and <b>amplitudes b</b> "
+                "→ every mode contributes φ<sub>i</sub>·b<sub>i</sub>·"
+                "λ<sub>i</sub><sup>t</sup>: the sum rebuilds the signal — and "
+                "the same formula predicts beyond the data window.",
+                font_size="12px"),
             *workflow_rows,
             tips,
             width=1000,
@@ -593,75 +527,304 @@ class DMDPlayground:
             self._status_div,
             spacing=8,
         )
+        signal_header, signal_chip, signal_howto = self._explainer(
+            "setup", "signal animation",
+            "the wave field y(x) at time t — one cursor drives all panels",
+            "The line is the full field: all modes superposed (plus offset and "
+            "noise) at the current time t.",
+            "&#9654; play — the waves travel &middot; add a second frequency and "
+            "watch the interference",
+            ["&#9654; play or the time slider moves the shared cursor — "
+             "panels 2–6 follow it",
+             "edit the composition on the left — the curve rebuilds "
+             "immediately (auto-rerun)"],
+            width=500)
         animation = column(
-            self._themed_header("Signal animation", "setup"),
-            self._signal_figure,
+            column(signal_header, signal_chip, self._signal_figure, spacing=0),
             row(self._signal_time_slider, self._signal_play_toggle),
-            self._themed_hint("The same time cursor drives every panel.", width=500),
+            signal_howto,
             spacing=8,
         )
         signal_panel = row(controls, animation, spacing=14)
+        eigen_header, eigen_chip, eigen_howto = self._explainer(
+            "eigenvalues", "eigenvalue plane",
+            "radius = growth, angle = frequency — drag a dot and everything "
+            "follows",
+            "Discrete-time view: |λ| &gt; 1 grows, |λ| &lt; 1 decays, "
+            "|λ| = 1 is neutral (the unit circle). The angle is the frequency.",
+            "drag λ outside the circle → the wave grows &middot; across the real "
+            "axis → the direction flips",
+            ["radius |λ| ↔ growth: σ = ln|λ|/Δt — outside the circle grows, "
+             "inside it decays",
+             "angle arg(λ) ↔ frequency: f = arg(λ)/(2π·Δt)",
+             "the shaded half planes mark the sign of Im λ (= sign of f); the "
+             "small triangle marks the wave's travel direction",
+             "drag a dot: the conjugate partner mirrors, and reconstruction, "
+             "spectrum, and spiral update live — 'lock to unit circle' keeps "
+             "|λ| = 1, Run DMD restores the fit"],
+            background=("<b>Why |λ| and not σ?</b> DMD works in discrete time: "
+                        "one time step multiplies the mode by λ. Per second the "
+                        "growth is σ = ln|λ|/Δt — the familiar 'Re(μ) &lt; 0 "
+                        "shrinks' becomes '|λ| &lt; 1 decays, |λ| &gt; 1 grows'."),
+            width=620)
+        dyn_header, dyn_chip, dyn_howto = self._explainer(
+            "eigenvalues", "λᵗ dynamics",
+            "each step multiplies by λ — inward spiral = decay, outward = growth",
+            "The trail shows λᵗ for t = 1…now: inward spiral = decay, outward "
+            "= growth, a circle = neutral. The rotation speed is the frequency.",
+            "drag the selected eigenvalue outward → the spiral turns outward "
+            "(growth)",
+            ["the trail is λᵗ of the selected mode, animated with the shared "
+             "cursor",
+             "faded dots: all fitted eigenvalues for context",
+             "dragging the eigenvalue (left figure) reshapes the spiral live"],
+            width=620)
         eigen_panel = column(
             row(self._dynamics_mode_slider, self._sort_select, self._amplitude_spinner,
                 self._lock_toggle, self._reset_fit_buttons["eigen"]),
-            row(self._eigenvalue_figure, self._dynamics_figure),
+            row(column(eigen_header, eigen_chip, self._eigenvalue_figure,
+                       eigen_howto, spacing=0),
+                column(dyn_header, dyn_chip, self._dynamics_figure,
+                       dyn_howto, spacing=0),
+                spacing=10),
             row(self._eigen_time_slider, self._eigen_play_toggle),
-            row(self._themed_hint(_HINT_EIGENVALUES, width=620),
-                self._themed_hint(_HINT_DYNAMICS, width=620)),
             spacing=10,
         )
+        spec_header, spec_chip, spec_howto = self._explainer(
+            "spectrum", "spectrum",
+            "how strong each mode is — conjugate pairs mirror and share one "
+            "color",
+            "Stem height = amplitude |b| (mode strength); position = frequency "
+            "f. The dashed lines mark the Nyquist limits ±1/(2Δt).",
+            "hover a stem to identify the mode &middot; the large marker is "
+            "the selected eigenvalue",
+            ["one stem per mode: height |b| = strength, position = frequency f",
+             "mirror peaks at f and −f = conjugate pairs — one physical wave, "
+             "one color",
+             "dashed verticals: the Nyquist limits ±1/(2Δt) — frequencies "
+             "beyond them alias",
+             "the large marker = the selected eigenvalue"],
+            background=("<b>Why a negative frequency?</b> A real signal needs "
+                        "conjugate pairs: λ and λ̄ (f and −f) come together, and "
+                        "the pair carries <b>one</b> physical wave — the "
+                        "reconstruction adds φbλᵗ + φ̄b̄λ̄ᵗ = 2·Re{φbλᵗ}. f &lt; 0 "
+                        "is bookkeeping of the complex representation, not a "
+                        "second wave."),
+            width=620)
+        growth_header, growth_chip, growth_howto = self._explainer(
+            "spectrum", "growth ↔ direction",
+            "above the line the wave travels +x, below −x — pairs coincide",
+            "σ = growth rate (horizontal); c = phase velocity (vertical, sign "
+            "= direction). Conjugate partners coincide: one physical wave.",
+            "drag an eigenvalue across the real axis → its dot jumps the zero "
+            "line: the wave reverses direction",
+            ["horizontal: σ = Re(ln λ)/Δt — right = growing, left = decaying, "
+             "zero = neutral",
+             "vertical: c = −2πf/κ — the phase velocity; the sign of c is the "
+             "travel direction (κ comes from the phase slope, panel 4)",
+             "conjugate partners coincide here: one physical wave, one dot",
+             "dashed lines: σ = 0 (neutral) and c = 0 (standing, "
+             "non-propagating)"],
+            width=620)
         spectrum_panel = column(
             self._reset_fit_buttons["spectrum"],
-            row(self._spectrum_figure, self._continuous_figure),
-            self._themed_hint(_HINT_SPECTRUM, width=620),
+            row(column(spec_header, spec_chip, self._spectrum_figure,
+                       spec_howto, spacing=0),
+                column(growth_header, growth_chip, self._continuous_figure,
+                       growth_howto, spacing=0),
+                spacing=10),
             spacing=10,
         )
+        quad_header, quad_chip, quad_howto = self._explainer(
+            "modes", "quadratures of φ",
+            "Re(φ) and Im(φ) together encode amplitude and spatial phase",
+            "The two curves are the real and imaginary parts of the complex "
+            "shape φ(s); their mix sets the traveling component.",
+            "drag 'standing ←→ traveling' — at 0 the Im part vanishes and the "
+            "wave stands still",
+            ["Re(φ): the cosine profile — zero crossings spaced by half a "
+             "wavelength",
+             "Im(φ): in quadrature (a quarter-wavelength offset) — it carries "
+             "the traveling component",
+             "the morph slider scales Im(φ): 1 = the fitted traveling wave, "
+             "0 = a pure standing pattern (two equal opposite-traveling "
+             "waves)",
+             "the faded dotted line: the fitted Im(φ), for reference"],
+            background=("<b>What does reducing Im mean?</b> The spatial phase "
+                        "of the wave lives in the Re/Im mix: Im carries the "
+                        "quarter-period shift that makes the pattern travel. "
+                        "Scaling Im toward 0 removes the shift — the two "
+                        "opposite-traveling waves balance and the wave stands "
+                        "still while keeping its spatial structure."),
+            width=615)
+        dir_header, dir_chip, dir_howto = self._explainer(
+            "modes", "traveling wave",
+            "the contribution animated — the arrow shows the net propagation",
+            "The curve is the selected mode's contribution at the current "
+            "time; the arrow length follows the remaining net propagation.",
+            "morph toward 'standing' → the motion slows into an in-place "
+            "oscillation",
+            ["the wave travels with the phase velocity c (see the growth ↔ "
+             "direction plane, panel 3)",
+             "the arrow scales with the net propagation — it vanishes for "
+             "standing waves",
+             "the info box derives κ, the wavelength λ_w = 2π/κ, and c from "
+             "the phase slope",
+             "the morph mixes in a counter-traveling wave: the motion slows "
+             "into an in-place oscillation",
+             "the faded dotted line: the fitted shape — morph edits are "
+             "visible against it"],
+            width=615)
+        phase_header, phase_chip, phase_howto = self._explainer(
+            "modes", "arg(φ) over space",
+            "the unwrapped slope is the wavenumber κ — the offset is the "
+            "spatial phase shift",
+            "arg(φ) is defined modulo 2π: the faded points wrap at ±π, the "
+            "unwrapped line is continuous.",
+            "compare with the quadrature view — the 2π jumps sit where the "
+            "wrapped phase resets",
+            ["faded points: the wrapped arg(φ) (defined modulo 2π, jumps at "
+             "±π)",
+             "the continuous line: the unwrapped phase — its slope is the "
+             "wavenumber κ",
+             "the offset at x = 0 is the spatial phase shift of the wave",
+             "the dotted line: the fitted phase, for reference"],
+            width=1000)
+        space_header, space_chip, space_howto = self._explainer(
+            "modes", "space–time map",
+            "wavelength = shape, period = eigenvalue — the slope is the speed",
+            "The selected mode's contribution over x and t: horizontal stripe "
+            "spacing = wavelength, vertical = period, slope = propagation "
+            "speed.",
+            "drag the eigenvalue's angle → the vertical spacing changes; the "
+            "horizontal stays frozen",
+            ["horizontal stripe spacing = the wavelength λ_w = 2π/κ — a "
+             "property of the shape",
+             "vertical spacing = the period T = 1/f — a property of the "
+             "eigenvalue",
+             "the stripe slope = the propagation speed c = −λ_w/T",
+             "editing the eigenvalue rescales the vertical spacing and the "
+             "slope; the horizontal spacing stays frozen",
+             "the morph slider changes the horizontal spacing; at t = 0 the "
+             "pattern degenerates to vertical stripes (standing)"],
+            width=615)
         mode_tabs = Tabs(tabs=[
             TabPanel(child=column(
-                row(self._quadrature_figure, self._direction_figure, spacing=5),
+                row(column(quad_header, quad_chip, self._quadrature_figure,
+                           quad_howto, spacing=0),
+                    column(dir_header, dir_chip, self._direction_figure,
+                           dir_howto, spacing=0),
+                    spacing=5),
                 row(column(self._modes_time_slider, self._modes_play_toggle,
                            width=300),
                     self._direction_div),
-                self._themed_hint(_HINT_REAL, width=1230),
-                self._themed_hint(_HINT_IMAG, width=1230),
-                self._themed_hint(_HINT_DIRECTION, width=1230),
                 spacing=8),
                 title="Shape & propagation"),
-            TabPanel(child=column(self._phase_figure,
-                                  self._themed_hint(_HINT_PHASE, width=1000), spacing=8),
-                     title="Phase"),
-            TabPanel(child=column(self._space_time_figure,
-                                  self._themed_hint(_HINT_SPACETIME, width=1000),
-                                  spacing=8),
-                     title="Space–time"),
+            TabPanel(child=column(
+                column(phase_header, phase_chip, self._phase_figure,
+                       phase_howto, spacing=0), spacing=8),
+                title="Phase"),
+            TabPanel(child=column(
+                column(space_header, space_chip, self._space_time_figure,
+                       space_howto, spacing=0), spacing=8),
+                title="Space–time"),
         ], tabs_location="above",
             stylesheets=[self._mode_tab_sheet])
         self._mode_tabs = mode_tabs
         mode_panel = column(row(self._mode_slider, self._morph_slider,
                                 self._reset_fit_buttons["modes"]),
                             mode_tabs, spacing=10)
+        time_header, time_chip, time_howto = self._explainer(
+            "reconstruction", "field at current time",
+            "original vs. rebuild — blend modes with the weight sliders and "
+            "watch the sum respond",
+            "Black: the original. Gray dashed: the weighted reconstruction. "
+            "Thin colored lines: each mode's contribution (hover to identify).",
+            "silence a pair (slider to 0) → its contribution line flattens "
+            "and the rebuild loses that wave",
+            ["black: the original field; gray dashed: the weighted "
+             "reconstruction Σ φᵢ·wᵢ·gᵢ·bᵢ·λᵢᵗ",
+             "thin lines in the pair colors: the per-mode contributions (hover "
+             "to identify)",
+             "the thick line: the selected eigenvalue's contribution",
+             "the time cursor is shared with all panels"],
+            width=1150)
+        weights_header, weights_chip, weights_howto = self._explainer(
+            "reconstruction", "mode weights",
+            "0 = silenced, 1 = as fitted — conjugate partners move together",
+            "One slider per eigenvalue; the pair sliders are grouped in one "
+            "color-bordered box (one physical wave).",
+            "move one slider — its conjugate partner follows, and the "
+            "reconstruction, spectrum, and prediction respond live",
+            ["one slider per eigenvalue; conjugate partners move together "
+             "(one physical wave, one box, one color)",
+             "the weights multiply the fitted amplitudes: total scale = "
+             "weight · gain (the panel-2 '|b| gain' is an extra factor)",
+             "the reconstruction, the spectrum, and the prediction (panel 6) "
+             "respond live"],
+            width=1150)
+        time_howto.width = 780
         time_panel = column(
             self._themed_header("Time &amp; mode weights", "reconstruction"),
             row(self._time_slider, self._play_toggle, self._reset_fit_buttons["recon"]),
+            column(weights_header, weights_chip, spacing=0),
             self._weights_layout,
-            self._time_figure,
-            row(self._themed_hint(_HINT_TIME, width=500), self._readout_div),
-            self._themed_hint(_HINT_WEIGHTS, width=1150),
+            column(time_header, time_chip, self._time_figure, spacing=0),
+            row(self._readout_div, time_howto, spacing=10),
             spacing=10,
         )
+        probe_header, probe_chip, probe_howto = self._explainer(
+            "prediction", "original vs. prediction",
+            f"the model runs past the data — probe x = "
+            f"{self._probe_slider.value:.2f}",
+            "The model curve continues from the reconstruction into the "
+            "future; the original ends at the dashed boundary; the dotted "
+            "truth is the clean continuation.",
+            "push the cursor beyond the data window &middot; give a mode "
+            "|λ| &gt; 1 in panel 2 and watch the forecast explode",
+            ["the model curve Σ φᵢ·bᵢ·λᵢᵗ continues seamlessly from the "
+             "reconstruction into the prediction",
+             "the original (solid) ends at the data boundary; the truth "
+             "(dotted) continues beyond it — future noise is unpredictable "
+             "by definition",
+             "eigenvalues outside the unit circle amplify the prediction, "
+             "inside they damp it",
+             "the 'prediction steps' box sets how far the model advances; "
+             "the slider end follows",
+             "weights (panel 5) and eigenvalue edits reshape the prediction "
+             "live"],
+            width=1150)
+        err_header, err_chip, err_howto = self._explainer(
+            "prediction", "prediction error",
+            "reconstruction error inside the window — exponential growth "
+            "beyond it for |λ| &gt; 1",
+            "RMS error over space against the reference: the original inside "
+            "the window, the clean truth beyond the dashed boundary.",
+            "compare a decaying eigenvalue (|λ| &lt; 1) with a growing one — "
+            "bounded vs. exploding error",
+            ["inside the window: the reconstruction error (against the "
+             "original)",
+             "beyond the dashed boundary: the prediction error (against the "
+             "clean truth)",
+             "|λ| &gt; 1 modes amplify the error exponentially; |λ| &lt; 1 "
+             "keep it bounded",
+             "with noise, the fit is contaminated and the prediction drifts "
+             "from the clean physics"],
+            width=1150)
         prediction_panel = column(
             self._themed_header("Prediction beyond the data window", "prediction"),
             row(self._n_pred_spinner, self._probe_slider,
                 self._reset_fit_buttons["predict"]),
-            self._predict_probe_figure,
+            column(probe_header, probe_chip, self._predict_probe_figure,
+                   probe_howto, spacing=0),
             row(self._predict_time_slider, self._predict_play_toggle,
                 self._predict_div),
-            self._predict_error_figure,
-            row(self._themed_hint(_HINT_PREDICTION_PROBE, width=570),
-                self._themed_hint(_HINT_PREDICTION_ERROR, width=570),
-                spacing=10),
+            column(err_header, err_chip, self._predict_error_figure,
+                   err_howto, spacing=0),
             spacing=10,
         )
+        # the probe explainer's essence carries the live probe position
+        self._probe_header = probe_header
         self._tabs = Tabs(tabs=[
             TabPanel(child=start_panel, title="Start"),
             TabPanel(child=signal_panel, title="1 · Signal"),
@@ -741,15 +904,90 @@ class DMDPlayground:
         self._themed(div, "info13" if font_size == "13px" else "info12")
         return div
 
+    def _explainer(self, step: str, title: str, essence: str, note: str,
+                   try_text: str, bullets: list[str],
+                   background: str | None = None,
+                   width: int = 620) -> tuple[Div, Div, Div]:
+        """
+        Create the explanation block of one figure: header, try chip, expander.
+
+        The header replaces the canvas title (title + essence + a CSS-only
+        hover note), the chip carries the always-visible "Try:" experiments,
+        and the expander unfolds the encoding bullets and the optional
+        background paragraph. All three Divs are registered so a theme switch
+        regenerates their HTML in place.
+
+        :param step: step key selecting the panel colors
+        :type step: str
+        :param title: technical title of the figure (HTML-safe)
+        :type title: str
+        :param essence: one-sentence essence (HTML-safe)
+        :type essence: str
+        :param note: short hover note (HTML-safe; escape ``<``/``>``)
+        :type note: str
+        :param try_text: the experiment(s) of the try chip (HTML-safe)
+        :type try_text: str
+        :param bullets: the encoding bullets of the expander (HTML-safe)
+        :type bullets: list[str]
+        :param background: optional background paragraph (HTML-safe), defaults
+            to None
+        :type background: str | None, optional
+        :param width: block width in pixels (match the figure width), defaults
+            to 620
+        :type width: int, optional
+        :return: header Div, try-chip Div, and how-to-read Div
+        :rtype: tuple[Div, Div, Div]
+        """
+        parts = {"title": title, "essence": essence, "note": note,
+                 "try_text": try_text, "bullets": bullets,
+                 "background": background, "step": step}
+        header = Div(text=figure_header_html(title, essence, note, step,
+                                             self._theme),
+                     width=width)
+        # the z-index lets the absolutely positioned hover note paint over
+        # the figure canvas below the header
+        header.styles = {"z-index": "30"}
+        chip = Div(text=try_chip_html(try_text, step, self._theme), width=width)
+        howto = Div(text=howto_html(bullets, background, step, self._theme),
+                    width=width)
+        self._explainers.append((header, chip, howto, parts))
+        return header, chip, howto
+
+    def _update_explainer_essence(self, header: Div, essence: str) -> None:
+        """
+        Update the essence sentence of one explainer header in place.
+
+        Used for headers whose essence carries live values (e.g. the probe
+        position of the prediction figure). The parts stored with the block
+        are updated as well, so a theme switch regenerates the header with
+        the current essence.
+
+        :param header: the header Div of the explainer block
+        :type header: Div
+        :param essence: the new essence sentence (HTML-safe)
+        :type essence: str
+        :return: None
+        :rtype: None
+        """
+        for stored_header, _, _, parts in self._explainers:
+            if stored_header is header:
+                parts["essence"] = essence
+                header.text = figure_header_html(
+                    parts["title"], essence, parts["note"], parts["step"],
+                    self._theme)
+                return
+
     def _apply_theme(self) -> None:
         """
         Apply the current theme in place to all figures, widgets, and text elements.
 
         The figure colors (canvas) are set from the theme, the registered Divs
-        (headers, hints, info boxes, workflow entries) are restyled, the theme
-        dependent renderer colors are updated, and the stored stylesheets' CSS
-        strings are regenerated. No models are added or removed, so the session,
-        the active panel, and all widget states are preserved.
+        (headers, hints, info boxes, workflow entries) are restyled, the
+        explainer blocks (figure header, try chip, how-to expander) and the
+        in-canvas teaching notes are regenerated, the theme dependent renderer
+        colors are updated, and the stored stylesheets' CSS strings are
+        regenerated. No models are added or removed, so the session, the
+        active panel, and all widget states are preserved.
 
         :return: None
         :rtype: None
@@ -836,6 +1074,24 @@ class DMDPlayground:
         # at the initial call — the root is only added to the document later)
         for model in self._layout_root.references():
             self._style_widget(model)
+        # regenerate the explainer blocks (header + chip + expander carry
+        # theme colors inside their HTML)
+        for header, chip, howto, parts in self._explainers:
+            header.text = figure_header_html(
+                parts["title"], parts["essence"], parts["note"], parts["step"],
+                self._theme)
+            chip.text = try_chip_html(parts["try_text"], parts["step"],
+                                      self._theme)
+            howto.text = howto_html(parts["bullets"], parts["background"],
+                                    parts["step"], self._theme)
+        # the in-canvas teaching notes follow the theme
+        for label, kind in self._canvas_notes:
+            if kind == "muted":
+                label.text_color = theme["muted"]
+            else:
+                label.text_color = theme["text"]
+                label.background_fill_color = theme["plot_bg"]
+                label.border_line_color = theme["grid"]
 
     def _style_widget(self, model: Model) -> None:
         """
@@ -2451,9 +2707,10 @@ class DMDPlayground:
         self._probe_boundary_span.location = boundary
         self._probe_cursor_span.location = self._predict_time_slider.value
         self._probe_data_box.right = boundary
-        self._predict_probe_figure.title.text = (f"original vs. prediction at the "
-                                                 f"probe point x = "
-                                                 f"{self._probe_slider.value:.2f}")
+        self._update_explainer_essence(
+            self._probe_header,
+            f"the model runs past the data — probe x = "
+            f"{self._probe_slider.value:.2f}")
         # fixed y-range over the whole horizon (honest scaling under playback);
         # the x-window is static inside the data window and slides with the
         # cursor once the prediction begins (strip chart, cursor at the right

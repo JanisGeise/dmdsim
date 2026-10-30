@@ -36,7 +36,8 @@ def create_eigenvalue_figure() -> tuple[figure, ColumnDataSource, GlyphRenderer,
     :rtype: tuple[figure, ColumnDataSource, GlyphRenderer, GlyphRenderer, Label,
         Label]
     """
-    fig = figure(width=620, height=560, title="eigenvalue plane", match_aspect=True,
+    # the HTML figure header (title + essence) replaces the canvas title
+    fig = figure(width=620, height=560, title=None, match_aspect=True,
                  x_range=(-1.6, 1.6), y_range=(-1.6, 1.6))
     # shaded half planes below all other glyphs mark the frequency sign; the
     # rectangles extend far beyond the axis ranges so any zoom level is covered
@@ -108,8 +109,8 @@ def create_mode_dynamics_figure() -> tuple[figure, ColumnDataSource, ColumnDataS
     :rtype: tuple[figure, ColumnDataSource, ColumnDataSource, ColumnDataSource,
         GlyphRenderer]
     """
-    fig = figure(width=620, height=560, title="mode dynamics: λᵗ in the complex plane",
-                 match_aspect=True, x_range=(-1.6, 1.6), y_range=(-1.6, 1.6))
+    fig = figure(width=620, height=560, title=None, match_aspect=True,
+                 x_range=(-1.6, 1.6), y_range=(-1.6, 1.6))
     angles = np.linspace(0.0, 2.0 * np.pi, 200)
     circle = fig.line(np.cos(angles), np.sin(angles), line_color="gray",
                       line_dash="dashed", line_width=1)
@@ -143,7 +144,7 @@ def create_spectrum_figure() -> tuple[figure, ColumnDataSource, list[Span]]:
         Nyquist spans (their locations are updated by the application)
     :rtype: tuple[figure, ColumnDataSource, list[Span]]
     """
-    fig = figure(width=620, height=560, title="DMD spectrum: |b| over frequency",
+    fig = figure(width=620, height=560, title=None,
                  x_range=(-1.0, 1.0))
     source = ColumnDataSource(dict(frequency=[], amplitude=[], index=[], growth=[],
                                    color=[], width=[], size=[]))
@@ -188,8 +189,7 @@ def create_growth_direction_figure() -> tuple[figure, ColumnDataSource]:
         and ``direction``
     :rtype: tuple[figure, ColumnDataSource]
     """
-    fig = figure(width=620, height=560,
-                 title="growth rate σ over phase velocity c")
+    fig = figure(width=620, height=560, title=None)
     source = ColumnDataSource(dict(sigma=[], velocity=[], index=[], color=[], size=[],
                                    frequency=[], direction=[]))
     scatter_renderer = fig.scatter(x="sigma", y="velocity", source=source,
@@ -232,7 +232,7 @@ def create_phase_figure(height: int = 420,
     :rtype: tuple[figure, ColumnDataSource]
     """
     color = "#d62728"
-    fig = figure(width=width, height=height, title="arg(φ) over space",
+    fig = figure(width=width, height=height, title=None,
                  y_range=Range1d(-np.pi - 0.4, np.pi + 0.4))
     source = ColumnDataSource(dict(s=[], value=[], unwrapped=[], reference=[]))
     # the wrapped values explain where the jumps of the sawtooth come from
@@ -280,8 +280,7 @@ def create_quadrature_figure(x_range: Range1d | None = None,
         ``real``, ``imag``, and ``reference``
     :rtype: tuple[figure, ColumnDataSource]
     """
-    options: dict = dict(width=width, height=height,
-                         title="Re(φ) and Im(φ) of the selected mode")
+    options: dict = dict(width=width, height=height, title=None)
     if x_range is not None:
         options["x_range"] = x_range
     if y_range is not None:
@@ -364,8 +363,7 @@ def create_space_time_figure(x_range: Range1d | None = None, height: int = 420,
         mapper (the app updates its symmetric limits)
     :rtype: tuple[figure, ColumnDataSource, LinearColorMapper]
     """
-    options: dict = dict(width=width, height=height,
-                         title="space–time map of the selected mode")
+    options: dict = dict(width=width, height=height, title=None)
     if x_range is not None:
         options["x_range"] = x_range
     fig = figure(**options, y_range=Range1d(0.0, 3.0))
@@ -401,8 +399,7 @@ def create_direction_figure(x_range: Range1d | None = None, height: int = 420,
         ``reference``), and the direction arrow annotation
     :rtype: tuple[figure, ColumnDataSource, Arrow]
     """
-    options: dict = dict(width=width, height=height,
-                         title="traveling wave of the selected mode")
+    options: dict = dict(width=width, height=height, title=None)
     if x_range is not None:
         options["x_range"] = x_range
     # a plain Range1d: the application owns the envelope y-range (a DataRange1d
@@ -438,7 +435,8 @@ def create_signal_curve_figure() -> tuple[figure, ColumnDataSource]:
     """
     # plain Range1d: the application owns the fixed y-range (a DataRange1d
     # would recompute it client-side and ignore the application's writes)
-    fig = figure(width=500, height=380, title="signal at the current time",
+    # the HTML figure header (title + essence) replaces the canvas title
+    fig = figure(width=500, height=380, title=None,
                  y_range=Range1d(-1.0, 1.0))
     source = ColumnDataSource(dict(s=[], value=[]))
     line_renderer = fig.line(x="s", y="value", source=source, color="#1a73e8",
@@ -469,7 +467,7 @@ def create_time_curves_figure() -> tuple[figure, ColumnDataSource, ColumnDataSou
     """
     # plain Range1d: the application owns the fixed y-range (a DataRange1d
     # would recompute it client-side and ignore the application's writes)
-    fig = figure(width=1150, height=420, title="field at current time",
+    fig = figure(width=1150, height=420, title=None,
                  y_range=Range1d(-1.0, 1.0))
     source = ColumnDataSource(dict(s=[], original=[], reconstruction=[], selected=[]))
     original_renderer = fig.line(x="s", y="original", source=source,
@@ -575,8 +573,7 @@ def create_prediction_probe_figure(width: int = 1150, height: int = 420) -> tupl
         dict[str, Label], dict[str, GlyphRenderer]]
     """
     # plain Range1d: the application owns both axis ranges
-    fig = figure(width=width, height=height,
-                 title="original vs. prediction at the probe point",
+    fig = figure(width=width, height=height, title=None,
                  y_range=Range1d(-1.0, 1.0))
     source = ColumnDataSource(dict(t=[], model=[], original=[], truth=[]))
     model_renderer = fig.line(x="t", y="model", source=source,
@@ -643,8 +640,7 @@ def create_prediction_error_figure(width: int = 1150, height: int = 280) -> tupl
         dict[str, Label], GlyphRenderer]
     """
     # plain Range1d: the application owns both axis ranges
-    fig = figure(width=width, height=height,
-                 title="prediction error (RMS over space) over the whole horizon",
+    fig = figure(width=width, height=height, title=None,
                  y_range=Range1d(0.0, 1.0))
     source = ColumnDataSource(dict(t=[], error=[]))
     error_renderer = fig.line(x="t", y="error", source=source, color="#c5221f",

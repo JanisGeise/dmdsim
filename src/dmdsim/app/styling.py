@@ -342,6 +342,118 @@ def _apply_named_styles(fig, theme: dict) -> None:
         arrow.end.line_color = accent
 
 
+def figure_header_html(title: str, essence: str, note: str, step: str,
+                       mode: str = "light") -> str:
+    """
+    Build the HTML of a figure header: title, essence, and hover note.
+
+    The header replaces the canvas plot title: the technical title in the
+    step accent, the essence sentence next to it, and a short note that
+    appears while hovering (pure CSS, no callbacks). The embedded ``<style>``
+    block applies only inside the Div's shadow root.
+
+    :param title: technical title of the figure
+    :type title: str
+    :param essence: one-sentence essence of the figure (HTML-safe)
+    :type essence: str
+    :param note: short hover note (HTML-safe; escape ``<``/``>``)
+    :type note: str
+    :param step: step key selecting the panel colors
+    :type step: str
+    :param mode: theme mode, defaults to ``"light"``
+    :type mode: str, optional
+    :return: HTML string for the header Div
+    :rtype: str
+    """
+    theme = THEMES[mode]
+    tint, accent = theme["tints"][step], theme["accents"][step]
+    return f"""
+    <style>
+      .fighead {{ position: relative; background: {tint};
+                  border-radius: 6px 6px 0 0; padding: 6px 10px; }}
+      .fighead-note {{ display: none; position: absolute; top: 100%; left: 0;
+                       right: 0; z-index: 100; background: {theme['box_bg']};
+                       border: 1px solid {theme['box_border']};
+                       border-radius: 0 0 6px 6px; padding: 6px 10px;
+                       font-size: 12px; line-height: 1.4;
+                       color: {theme['text']}; }}
+      .fighead:hover .fighead-note {{ display: block; }}
+      .fighead-title {{ color: {accent}; font-weight: 600; font-size: 13px; }}
+      .fighead-essence {{ color: {theme['text']}; font-size: 13px;
+                          font-weight: 500; }}
+      .fighead-hint {{ color: {theme['muted']}; font-size: 11px; }}
+    </style>
+    <div class="fighead">
+      <span class="fighead-title">{title}</span>
+      <span class="fighead-essence"> &middot; {essence}</span>
+      <span class="fighead-hint"> &#9432; hover for a quick note</span>
+      <div class="fighead-note">{note}</div>
+    </div>
+    """
+
+
+def try_chip_html(text: str, step: str, mode: str = "light") -> str:
+    """
+    Build the HTML of the always-visible "Try this" chip of a figure block.
+
+    The chip carries the step accent as its background and invites one or two
+    concrete experiments; it sits flush under the figure header (square bottom
+    corners) so header and chip read as one block with the figure below.
+
+    :param text: the experiment(s) to try (HTML-safe)
+    :type text: str
+    :param step: step key selecting the panel colors
+    :type step: str
+    :param mode: theme mode, defaults to ``"light"``
+    :type mode: str, optional
+    :return: HTML string for the try-chip Div
+    :rtype: str
+    """
+    theme = THEMES[mode]
+    accent = theme["accents"][step]
+    return (f"<div style=\"background: {accent}; color: {theme['page_bg']};"
+            f" padding: 5px 10px; font-size: 12px;\"><b>Try:</b> {text}</div>")
+
+
+def howto_html(bullets: list[str], background: str | None, step: str,
+               mode: str = "light") -> str:
+    """
+    Build the HTML of the collapsed "How to read" expander of a figure block.
+
+    A native ``<details>`` element (no callbacks): the summary line stays
+    visible while the encoding bullets and the optional background paragraph
+    unfold on click. The background paragraph is styled as a distinct
+    "pro-tip" block (box background + accent left border) so it reads as a
+    deeper explanation rather than another bullet.
+
+    :param bullets: the encoding bullets (HTML-safe)
+    :type bullets: list[str]
+    :param background: optional background paragraph below the bullets
+        (HTML-safe), defaults to None
+    :type background: str | None, optional
+    :param step: step key selecting the panel colors
+    :type step: str
+    :param mode: theme mode, defaults to ``"light"``
+    :type mode: str, optional
+    :return: HTML string for the how-to-read Div
+    :rtype: str
+    """
+    theme = THEMES[mode]
+    accent = theme["accents"][step]
+    items = "".join(f"<li style='margin: 2px 0;'>{bullet}</li>" for bullet in bullets)
+    block = (f"<div style='margin-top: 8px; padding: 6px 10px;"
+             f" background: {theme['box_bg']};"
+             f" border-left: 3px solid {accent}; border-radius: 4px;'>"
+             f"{background}</div>" if background else "")
+    return f"""
+    <details style="font-size: 12px; color: {theme['text']}; padding: 2px 0 0 10px;">
+      <summary style="cursor: pointer; color: {theme['muted']}; font-size: 12px;">
+        How to read &#9656;</summary>
+      <ul style="margin: 6px 0 0 0; padding-left: 18px;">{items}</ul>{block}
+    </details>
+    """
+
+
 def style_figure(fig, step: str, mode: str = "light") -> None:
     """
     Apply the step colors and the theme style to a figure.
@@ -367,8 +479,10 @@ def style_figure(fig, step: str, mode: str = "light") -> None:
     fig.background_fill_color = theme["plot_bg"]
     fig.border_fill_color = tint
     fig.outline_line_color = theme["grid"]
-    fig.title.text_color = accent
-    fig.title.text_font_style = "bold"
+    if fig.title is not None:
+        # figures with an HTML header have no canvas title (title=None)
+        fig.title.text_color = accent
+        fig.title.text_font_style = "bold"
     for axis in (fig.xaxis, fig.yaxis):
         axis.axis_label_text_color = theme["muted"]
         axis.major_label_text_color = theme["muted"]
