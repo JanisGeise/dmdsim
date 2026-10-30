@@ -536,8 +536,11 @@ Core coverage only (app layer intentionally untested, see PLAN.md §7):
 ## Packaging
 
 - `pyproject.toml` — setuptools, src layout, `requires-python >= 3.10`, runtime
-  deps numpy + bokeh (flowTorch installed editable from `../flowtorch`, see
-  README), console script `dmdsim-app = "dmdsim.app.main:main"`.
+  deps numpy + bokeh (flowTorch comes from the upstream repository via
+  `requirements.txt`, see README), console script
+  `dmdsim-app = "dmdsim.app.main:main"`.
 - `requirements.txt` — pinned environment incl. CPU-only torch and the minimal
   flowTorch import requirements (scipy, plotly, pandas, pillow, vtk, h5py,
-  netCDF4).
+  netCDF4); flowTorch itself is pinned to an upstream commit
+  (`flowtorch-fluid @ git+…` — the distribution name differs from the import
+  package `flowtorch`).

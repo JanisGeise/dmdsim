@@ -13,8 +13,7 @@ requires-python = ">=3.10"
 dependencies = [
     "numpy",
     "bokeh",
-    # flowTorch is intentionally not a pip dependency; it is installed editable
-    # from the local repository (see README.md)
+    # flowTorch is installed via requirements.txt from the upstream repository
 ]
 
 [project.optional-dependencies]

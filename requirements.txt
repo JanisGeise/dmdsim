@@ -1,4 +1,4 @@
-# runtime dependencies of dmdsim and the local flowTorch installation
+# runtime dependencies of dmdsim and flowTorch
 numpy==2.5.4
 bokeh==3.10.1
 scipy==1.18.1
@@ -17,6 +17,7 @@ torch==2.14.1+cpu
 pytest==9.2.0
 pytest-cov==7.1.0
 
-# flowTorch itself is intentionally NOT a pip dependency; install it editable
-# from the local repository without its (heavy) requirements, see README.md:
-#   pip install -e ../flowtorch --no-deps
+# flowTorch, the DMD engine, from the upstream repository (the PyPI release is
+# outdated; upstream distributes the package as "flowtorch-fluid"); pinned by
+# commit for a reproducible setup
+flowtorch-fluid @ git+https://github.com/FlowModelingControl/flowtorch.git@56ec0ce406cb25622d02bd9f64232ff78f8cbef2
