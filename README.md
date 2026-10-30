@@ -28,7 +28,11 @@ For transparency:
 
 ## Installation
 
-You need **Python 3.10 or newer** (tested with 3.12).
+You need **Python 3.12 or newer** (the pinned dependencies require 3.12;
+tested with 3.12).
+
+> **Windows:** not tested yet — you may want to use **WSL**
+> (Windows Subsystem for Linux), where the Linux commands below work as-is.
 
 ```bash
 # 1 — get the code
@@ -116,3 +120,11 @@ is kept locally only (untracked).
 Plans, roadmap, and the status of completed steps are kept internal as well
 (`PLAN.md`, untracked) — this README stays user-facing (installation, the
 GUI, tests, license).
+
+## Feedback
+
+This playground is under active development and used as teaching material —
+you are exactly the person whose opinion matters! If something breaks, feels
+confusing, or could support your learning better, please
+[open an issue](https://github.com/JanisGeise/dmdsim/issues). Bug reports,
+"this confused me" reports, and teaching ideas are all equally welcome.

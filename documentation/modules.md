@@ -535,7 +535,8 @@ Core coverage only (app layer intentionally untested, see PLAN.md §7):
 
 ## Packaging
 
-- `pyproject.toml` — setuptools, src layout, `requires-python >= 3.10`, runtime
+- `pyproject.toml` — setuptools, src layout, `requires-python >= 3.12` (the
+  pinned numpy/scipy/bokeh require 3.12), runtime
   deps numpy + bokeh (flowTorch comes from the upstream repository via
   `requirements.txt`, see README), console script
   `dmdsim-app = "dmdsim.app.main:main"`.

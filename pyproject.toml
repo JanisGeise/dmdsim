@@ -9,7 +9,7 @@ description = "Interactive playground for visualizing and exploring DMD quantiti
 readme = "README.md"
 license = "GPL-3.0-or-later"
 license-files = ["LICENSE"]
-requires-python = ">=3.10"
+requires-python = ">=3.12"
 dependencies = [
     "numpy",
     "bokeh",
