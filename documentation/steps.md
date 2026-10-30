@@ -1203,3 +1203,57 @@ User adjustments after trying panel 6:
   over the correct regions; sliding: window ~0.4–3.7 s with shaded tail,
   cursor inside, forecast ahead) plus a DARK-mode capture: all PASS (chips
   legible over the curves, no glitches).
+
+## 2026-10-30 — Dark-mode revision (widget shadow-DOM theming + figure reference colors)
+
+A visual dark-mode pass over all seven tabs (screenshots via the new `/d0`–`/d6`
+debug-server routes that flip the theme switch after the build) plus computed
+style probes found systemic issues; all were fixed and re-verified.
+
+**Diagnosis (computed styles + bokeh 3.10.1 shadow-DOM CSS):**
+- Every visible widget surface lives inside a shadow root — page-level CSS
+  (`.bk-btn`, `.bk-input`, `.bk-menu`, … in `_PAGE_CSS`) can never reach it.
+- All plain buttons (`Open`, `reset`, `play`) rendered WHITE in dark mode:
+  `Button` was excluded from the widget custom-property loop and the inline
+  accent styles on the workflow buttons never reached the `.bk-btn` surface
+  (they had silently been white in LIGHT mode too).
+- Form-control text stayed BLACK on dark inputs: the browser UA stylesheet
+  forces `input { color: black }`, which inherited custom properties cannot
+  override (verified: the whole inheritance chain carried `--color`, only the
+  `<input>` resolved black; an author rule inside the shadow root fixes it).
+- Sliders were fully light (nouislider bar `#fafafa`, handle white); the
+  filled range is set INLINE by bokeh from `Slider.bar_color` (CSS cannot win).
+- Switch bar/knob used bokeh's light defaults; Run DMD showed bokeh's primary
+  `#428bca` instead of the setup accent; the DMD-fit error message hardcoded
+  the light error red.
+- Figures carried light-theme leftovers: gray unit circles/Nyquist/zero spans,
+  off-palette quadrature (`#1f77b4`/`#ff7f0e`) and phase (`#d62728`) colors,
+  the light modes accent `#8430ce` for the traveling wave/arrow (dark:
+  `#c58af9`), and an unstyled ColorBar (dark tick text on the dark panel).
+
+**Fixes:**
+- `styling.py`: theme keys `line_real`/`line_imag`/`line_phase`,
+  `slider_bar`/`slider_connect`/`slider_handle`/`slider_handle_border`,
+  `switch_off_*`/`switch_on_*`; helpers `button_styles`,
+  `primary_button_styles`, `accent_button_styles` (bokeh's `--default*`/
+  `--primary*`/`--inverted-color` families), `switch_styles`,
+  `input_stylesheet` (`.bk-input { color: var(--color) }` for the shadow root),
+  `slider_stylesheet` (nouislider track/handle); `style_figure` now also sets
+  the tooltip custom properties, styles an attached `ColorBar`, and re-colors
+  named renderers (`_apply_named_styles` via `fig.select`).
+- `figures.py`: theme-dependent reference renderers tagged with `name`
+  (unit circles, Nyquist/zero spans, phase/quadrature lines, direction
+  lines + arrow).
+- `main.py`: button kinds in the themed registry (`btn` accent, `btn_default`,
+  `btn_primary`) replacing the broken inline styles; `_style_widget` applies
+  custom properties + shadow-root stylesheets (+ `bar_color`), called over
+  `layout_root.references()` (doc.models is empty at the initial call) and for
+  the per-fit rebuilt weight sliders; error message uses the theme error color.
+- Debug server gained `/d0`–`/d6` + `/d6s` dark routes; screenshot script a
+  route-prefix argument.
+
+**Verification:** pytest 20 passed; headless build + both theme switches OK;
+computed-style probes (inputs `#e8eaed` on `#1e1e1e`, accent Open buttons,
+primary Run DMD, dark reset/play, dark slider track/handle/fill, themed
+switch); vision review of all seven dark tabs (all clean) and all seven light
+tabs (no regressions; light buttons/inputs/sliders/switches correct).

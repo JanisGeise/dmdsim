@@ -6,7 +6,7 @@
     are styled via `style_figure`, layout elements via `header`, `hint`, and
     `info_box`, and the tab strip and page via the returned stylesheets.
 """
-from bokeh.models import Div
+from bokeh.models import ColorBar, Div
 from bokeh.plotting import figure
 
 _LIGHT = {
@@ -17,6 +17,11 @@ _LIGHT = {
     "line_original": "#202124", "line_reconstruction": "#5f6368",
     "line_selection": "#9aa0a6", "line_signal": "#1a73e8",
     "line_prediction": "#00897b", "line_error": "#c5221f",
+    "line_real": "#1a73e8", "line_imag": "#e8710a", "line_phase": "#c5221f",
+    "slider_bar": "#fafafa", "slider_connect": "#e6e6e6", "slider_handle": "#ffffff",
+    "slider_handle_border": "#d9d9d9",
+    "switch_off_bar": "#e8eaed", "switch_off_knob": "#ffffff",
+    "switch_on_bar": "#1a73e8", "switch_on_knob": "#ffffff",
     "tints": {"setup": "#f0f5ff", "eigenvalues": "#eef7f0", "spectrum": "#fffaef",
               "modes": "#f7f0fc", "reconstruction": "#fdf1ef",
               "prediction": "#e8f5f3"},
@@ -35,6 +40,11 @@ _DARK = {
     "line_original": "#e8eaed", "line_reconstruction": "#9aa0a6",
     "line_selection": "#5f6368", "line_signal": "#8ab4f8",
     "line_prediction": "#35d0ba", "line_error": "#f28b82",
+    "line_real": "#8ab4f8", "line_imag": "#fcad03", "line_phase": "#f28b82",
+    "slider_bar": "#3c4043", "slider_connect": "#9aa0a6", "slider_handle": "#e8eaed",
+    "slider_handle_border": "#9aa0a6",
+    "switch_off_bar": "#3c4043", "switch_off_knob": "#9aa0a6",
+    "switch_on_bar": "#8ab4f8", "switch_on_knob": "#131313",
     "tints": {"setup": "#1b2436", "eigenvalues": "#1b2a22", "spectrum": "#2b2618",
               "modes": "#271d33", "reconstruction": "#322020",
               "prediction": "#122b27"},
@@ -66,6 +76,23 @@ _TAB_CSS = """
               font-weight: 500; font-size: 13px; text-align: left; }
     .bk-tab:hover { background: @HOVERBG; color: @HOVERTEXT; }
     .bk-active { background: @ACCENT; color: @PAGETEXT; }
+"""
+
+# the browser UA stylesheet forces a black text color on form controls, which
+# inherited custom properties cannot override — a stylesheet inside the
+# widget's shadow root is the only way to theme the input text
+_INPUT_CSS = """
+    .bk-input { color: var(--color); }
+"""
+
+# the slider visuals come from the bundled nouislider.css (light bar, white
+# handle); the filled range is set inline by bokeh from the Slider's
+# bar_color property, so only track and handle need a shadow-root stylesheet
+_SLIDER_CSS = """
+    .noUi-target { background-color: @BAR; border-color: @BAR;
+                   box-shadow: none; }
+    .noUi-target .noUi-handle { background-color: @HANDLE;
+                                border-color: @HANDLEBORDER; box-shadow: none; }
 """
 
 _PAGE_CSS = """
@@ -142,6 +169,179 @@ def halfplane_colors(mode: str = "light") -> tuple[str, str]:
     return HALF_PLANE_COLORS[mode]
 
 
+def button_styles(mode: str = "light") -> dict:
+    """
+    Return the CSS custom properties of a default (gray) bokeh button.
+
+    Bokeh renders buttons inside a shadow root whose ``.bk-btn-default`` rule
+    consumes the ``--default*`` variable family, so plain inline styles on the
+    button host never reach the visible surface.
+
+    :param mode: theme mode, defaults to ``"light"``
+    :type mode: str, optional
+    :return: custom-property dictionary for a ``Button``/``Toggle`` model
+    :rtype: dict
+    """
+    theme = THEMES[mode]
+    return {"--default": theme["box_bg"],
+            "--default-hover": theme["tab_hover_bg"],
+            "--default-active": theme["tab_hover_bg"],
+            "--default-border": theme["grid"],
+            "--default-disabled": theme["box_bg"],
+            "--default-disabled-border": theme["grid"],
+            "--color": theme["text"]}
+
+
+def primary_button_styles(mode: str = "light") -> dict:
+    """
+    Return the CSS custom properties of a primary (accent) bokeh button.
+
+    The ``.bk-btn-primary`` rule consumes the ``--primary*`` family for the
+    surface and ``--inverted-color`` for the label, so an accent button is
+    fully themeable through these variables.
+
+    :param mode: theme mode, defaults to ``"light"``
+    :type mode: str, optional
+    :return: custom-property dictionary for a ``Button`` with
+        ``button_type="primary"``
+    :rtype: dict
+    """
+    theme = THEMES[mode]
+    accent = theme["accents"]["setup"]
+    return {"--primary": accent, "--primary-hover": accent,
+            "--primary-active": accent, "--primary-border": accent,
+            "--primary-disabled": accent, "--primary-disabled-border": accent,
+            "--inverted-color": theme["page_bg"]}
+
+
+def accent_button_styles(mode: str, step: str) -> dict:
+    """
+    Return the CSS custom properties of a per-step accent bokeh button.
+
+    The workflow "Open" buttons carry the accent color of their target panel;
+    the accent fills the ``--default*`` surface family and the page background
+    color serves as the label color.
+
+    :param mode: theme mode
+    :type mode: str
+    :param step: step key selecting the accent color
+    :type step: str
+    :return: custom-property dictionary for an accent-styled ``Button``
+    :rtype: dict
+    """
+    theme = THEMES[mode]
+    accent = theme["accents"][step]
+    return {"--default": accent, "--default-hover": accent,
+            "--default-active": accent, "--default-border": "transparent",
+            "--default-disabled": accent,
+            "--default-disabled-border": "transparent",
+            "--color": theme["page_bg"]}
+
+
+def switch_styles(mode: str = "light") -> dict:
+    """
+    Return the CSS custom properties of a bokeh ``Switch``.
+
+    The switch bar and knob consume the ``--inactive-*``/``--active-*``
+    variables; the on-state carries the setup accent so the switch follows the
+    theme instead of bokeh's light defaults.
+
+    :param mode: theme mode, defaults to ``"light"``
+    :type mode: str, optional
+    :return: custom-property dictionary for a ``Switch`` model
+    :rtype: dict
+    """
+    theme = THEMES[mode]
+    return {"--inactive-bg": theme["switch_off_bar"],
+            "--inactive-fg": theme["switch_off_knob"],
+            "--active-bg": theme["switch_on_bar"],
+            "--active-fg": theme["switch_on_knob"]}
+
+
+def input_stylesheet(mode: str = "light") -> str:
+    """
+    Build the shadow-root CSS string that themes the text of form controls.
+
+    The browser UA stylesheet forces a black text color on ``input``/``select``
+    elements which inherited custom properties cannot override; a stylesheet
+    inside the widget's shadow root re-maps the color to ``var(--color)``.
+
+    :param mode: theme mode, defaults to ``"light"``
+    :type mode: str, optional
+    :return: CSS string for the ``stylesheets`` property of input widgets
+    :rtype: str
+    """
+    return _INPUT_CSS
+
+
+def slider_stylesheet(mode: str = "light") -> str:
+    """
+    Build the shadow-root CSS string that themes a ``Slider``'s nouislider bar.
+
+    The bundled nouislider.css draws a light track with a white handle; the
+    shadow-root stylesheet re-colors the track and the handle from the theme.
+    The filled range is set inline by bokeh from the ``bar_color`` property
+    (theme it via ``theme_colors(mode)["slider_connect"]``).
+
+    :param mode: theme mode, defaults to ``"light"``
+    :type mode: str, optional
+    :return: CSS string for the ``stylesheets`` property of sliders
+    :rtype: str
+    """
+    theme = THEMES[mode]
+    replacements = {"@BAR": theme["slider_bar"],
+                    "@HANDLE": theme["slider_handle"],
+                    "@HANDLEBORDER": theme["slider_handle_border"]}
+    css = _SLIDER_CSS
+    # longest keys first: @HANDLE is a prefix of @HANDLEBORDER, and a naive
+    # replacement order would corrupt the placeholder into an invalid color
+    for key in sorted(replacements, key=len, reverse=True):
+        css = css.replace(key, replacements[key])
+    return css
+
+
+def _apply_named_styles(fig, theme: dict) -> None:
+    """
+    Re-color the named theme-dependent renderers of a figure.
+
+    The figure builders tag reference lines, spans, arrows, and scatters that
+    carry hard-coded light-theme colors with a ``name``; this helper resolves
+    them via ``fig.select`` and assigns the theme colors. Called from
+    ``style_figure`` on every theming pass.
+
+    :param fig: figure whose named renderers are re-colored
+    :type fig: figure
+    :param theme: color dictionary of the current theme
+    :type theme: dict
+    :return: None
+    :rtype: None
+    """
+    for renderer in fig.select({"name": "unit_circle"}):
+        renderer.glyph.line_color = theme["muted"]
+    for span in fig.select({"name": "nyquist_span"}):
+        span.line_color = theme["muted"]
+    for span in fig.select({"name": "zero_span"}):
+        span.line_color = theme["muted"]
+    for renderer in fig.select({"name": "phase_wrapped"}):
+        renderer.glyph.fill_color = theme["line_phase"]
+    for name in ("phase_unwrapped", "phase_reference"):
+        for renderer in fig.select({"name": name}):
+            renderer.glyph.line_color = theme["line_phase"]
+    for name, color in (("quad_real", theme["line_real"]),
+                        ("quad_imag", theme["line_imag"]),
+                        ("quad_reference", theme["line_imag"])):
+        for renderer in fig.select({"name": name}):
+            renderer.glyph.line_color = color
+    accent = theme["accents"]["modes"]
+    for name in ("direction_wave", "direction_reference"):
+        for renderer in fig.select({"name": name}):
+            renderer.glyph.line_color = accent
+    for arrow in fig.select({"name": "direction_arrow"}):
+        arrow.line_color = accent
+        arrow.end.fill_color = accent
+        arrow.end.line_color = accent
+
+
 def style_figure(fig, step: str, mode: str = "light") -> None:
     """
     Apply the step colors and the theme style to a figure.
@@ -149,6 +349,9 @@ def style_figure(fig, step: str, mode: str = "light") -> None:
     The plot area carries the theme plot background while the figure border
     area carries the panel tint; title, axes, grid, and legend follow the
     theme text and grid colors with the accent color reserved for the title.
+    Named renderers (unit circle, spans, arrows) are re-colored, an attached
+    color bar is styled, and the tooltip custom properties are set so hover
+    tooltips follow the theme.
 
     :param fig: figure to style
     :type fig: figure
@@ -176,6 +379,17 @@ def style_figure(fig, step: str, mode: str = "light") -> None:
         fig.legend.background_fill_color = theme["plot_bg"]
         fig.legend.border_line_color = theme["grid"]
         fig.legend.label_text_color = theme["text"]
+    # hover tooltips are UIElements inside the plot's shadow root; they inherit
+    # --background-color/--color, so the tooltip surface follows the theme
+    fig.styles = {"--background-color": theme["box_bg"], "--color": theme["text"],
+                  "--divider-color": theme["grid"]}
+    for color_bar in fig.right:
+        if isinstance(color_bar, ColorBar):
+            color_bar.title_text_color = theme["muted"]
+            color_bar.major_label_text_color = theme["muted"]
+            color_bar.major_tick_line_color = theme["grid"]
+            color_bar.bar_line_color = theme["grid"]
+    _apply_named_styles(fig, theme)
 
 
 def header(text: str, step: str, mode: str = "light") -> Div:
@@ -300,6 +514,7 @@ def tab_css(mode: str = "light", accent: str | None = None,
     theme = THEMES[mode]
     # placeholders instead of format() because the CSS is full of literal braces
     replacements = {
+        "@PAGE": theme["page_bg"],
         "@DIRECTION": "column" if vertical else "row",
         "@ALIGN": "stretch" if vertical else "flex-start",
         "@ACCENT": accent or theme["accents"]["setup"],
@@ -308,8 +523,10 @@ def tab_css(mode: str = "light", accent: str | None = None,
         "@HOVERBG": theme["tab_hover_bg"], "@HOVERTEXT": theme["tab_hover_text"],
     }
     css = _TAB_CSS
-    for key, value in replacements.items():
-        css = css.replace(key, value)
+    # longest keys first: @PAGE is a prefix of @PAGETEXT, and a naive
+    # replacement order would leave the :host background literal
+    for key in sorted(replacements, key=len, reverse=True):
+        css = css.replace(key, replacements[key])
     return css
 
 
@@ -335,8 +552,9 @@ def page_css(mode: str = "light") -> str:
         "@ACCENT": theme["accents"]["setup"],
     }
     css = _PAGE_CSS
-    for key, value in replacements.items():
-        css = css.replace(key, value)
+    # longest keys first (robustness against future placeholder prefixes)
+    for key in sorted(replacements, key=len, reverse=True):
+        css = css.replace(key, replacements[key])
     return css
 
 

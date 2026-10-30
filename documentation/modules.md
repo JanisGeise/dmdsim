@@ -233,7 +233,31 @@ background #131313):
 - `theme_colors(mode)`, `step_colors(step, mode)` — accessors.
 - `style_figure(fig, step, mode)` — theme plot background on the tinted panel
   border, accent-colored bold title, theme axes/grid/legend (legend styling
-  only applied when the figure actually has legends).
+  only applied when the figure actually has legends), the tooltip custom
+  properties (tooltips are UIElements inside the plot's shadow root and
+  inherit `--background-color`/`--color`), an attached `ColorBar` (label/title
+  text, ticks), and the **named renderers** via `_apply_named_styles`
+  (figure builders tag theme-dependent reference lines/spans/arrows/scatters
+  with a `name` — unit circles, Nyquist/zero spans, phase/quadrature lines,
+  traveling-wave lines + arrow — and this helper re-colors them via
+  `fig.select`; theme keys `line_real`/`line_imag`/`line_phase`).
+- `button_styles(mode)` / `primary_button_styles(mode)` /
+  `accent_button_styles(mode, step)` — CSS custom-property dictionaries for
+  bokeh buttons: the visible surface lives inside the widget's shadow root
+  (`.bk-btn-default` consumes `--default*` + `--color`, `.bk-btn-primary`
+  consumes `--primary*` + `--inverted-color`), so plain inline styles on the
+  button model NEVER reach it (they style the host only, which the opaque
+  `.bk-btn` paints over).
+- `switch_styles(mode)` — `--inactive-*`/`--active-*` custom properties of the
+  `Switch` (keys `switch_off_bar`/`switch_off_knob`/`switch_on_bar`/
+  `switch_on_knob`).
+- `input_stylesheet(mode)` / `slider_stylesheet(mode)` — CSS strings for the
+  `stylesheets` property of input widgets/sliders: the browser UA stylesheet
+  forces black text on `input`/`select` (inherited custom properties cannot
+  override it), and the bundled nouislider.css draws a light track/handle;
+  both are fixed from inside the widget's shadow root. The slider's filled
+  range is set inline by bokeh from `Slider.bar_color`
+  (theme key `slider_connect`) — CSS cannot reach it.
 - `header(text, step, mode)` / `header_styles(step, mode)` — colored section
   header element and its style dictionary (for re-theming existing widgets).
 - `hint(text, width=None, mode)` / `hint_styles(mode)` — muted inline
@@ -284,7 +308,13 @@ silences flowTorch's INFO logging at import time.
   is selected), `_drag_cache` (marker positions for drag detection),
   `_syncing_params`/`_syncing_morph`/`_syncing_weights`/`_syncing_probe`
   (guards for programmatic restores), `_themed_divs` (registered
-  theme-dependent elements), and the stored stylesheets
+  theme-dependent elements — Divs AND buttons/toggles: kinds `"btn"`
+  (accent via `accent_button_styles`), `"btn_default"`, `"btn_primary"`),
+  `_style_widget` (per-widget theming: custom properties + shadow-root
+  stylesheets for inputs/sliders, `bar_color` for sliders; called from
+  `_apply_theme` over `layout_root.references()` — `doc.models` is empty at
+  the initial call — and from `_weight_box` for the per-fit rebuilt weight
+  sliders), and the stored stylesheets
   `_page_sheet`/`_tab_sheet`/`_mode_tab_sheet` (created once; a theme switch
   regenerates their `css`).
 - `_build_widgets`: automatic-composition spinners (Nₘ, f_min, f_max, offset),

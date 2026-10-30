@@ -50,8 +50,9 @@ def create_eigenvalue_figure() -> tuple[figure, ColumnDataSource, GlyphRenderer,
                                fill_color=lower_color, fill_alpha=0.08,
                                line_alpha=0.0)
     angles = np.linspace(0.0, 2.0 * np.pi, 200)
-    fig.line(np.cos(angles), np.sin(angles), line_color="gray", line_dash="dashed",
-             line_width=1)
+    circle = fig.line(np.cos(angles), np.sin(angles), line_color="gray",
+                      line_dash="dashed", line_width=1)
+    circle.name = "unit_circle"
     source = ColumnDataSource(dict(re=[], im=[], index=[], frequency=[], growth=[],
                                    color=[], size=[], dir_x=[], dir_y=[],
                                    dir_angle=[], dir_color=[], dir_size=[]))
@@ -110,8 +111,9 @@ def create_mode_dynamics_figure() -> tuple[figure, ColumnDataSource, ColumnDataS
     fig = figure(width=620, height=560, title="mode dynamics: λᵗ in the complex plane",
                  match_aspect=True, x_range=(-1.6, 1.6), y_range=(-1.6, 1.6))
     angles = np.linspace(0.0, 2.0 * np.pi, 200)
-    fig.line(np.cos(angles), np.sin(angles), line_color="gray", line_dash="dashed",
-             line_width=1)
+    circle = fig.line(np.cos(angles), np.sin(angles), line_color="gray",
+                      line_dash="dashed", line_width=1)
+    circle.name = "unit_circle"
     all_source = ColumnDataSource(dict(x=[], y=[], index=[], color=[], size=[]))
     fig.scatter(x="x", y="y", source=all_source, size="size", color="color", alpha=0.7)
     trail_source = ColumnDataSource(dict(x=[], y=[], color=[]))
@@ -160,6 +162,7 @@ def create_spectrum_figure() -> tuple[figure, ColumnDataSource, list[Span]]:
              Span(dimension="height", location=1.0, line_color="gray",
                   line_dash="dashed", line_width=1)]
     for span in spans:
+        span.name = "nyquist_span"
         fig.add_layout(span)
     fig.xaxis.axis_label = "f [Hz]"
     fig.yaxis.axis_label = "amplitude |b|"
@@ -201,8 +204,10 @@ def create_growth_direction_figure() -> tuple[figure, ColumnDataSource]:
     # dashed zero lines: vertical = neutral growth (σ = 0), horizontal = no
     # propagation (c = 0: standing wave or spatially constant shape)
     for dimension in ("height", "width"):
-        fig.add_layout(Span(dimension=dimension, location=0.0, line_color="gray",
-                            line_dash="dashed", line_width=1))
+        span = Span(dimension=dimension, location=0.0, line_color="gray",
+                    line_dash="dashed", line_width=1)
+        span.name = "zero_span"
+        fig.add_layout(span)
     fig.xaxis.axis_label = "σ [1/s]"
     fig.yaxis.axis_label = "c = −2πf/κ [units/s]"
     return fig, source
@@ -231,13 +236,16 @@ def create_phase_figure(height: int = 420,
                  y_range=Range1d(-np.pi - 0.4, np.pi + 0.4))
     source = ColumnDataSource(dict(s=[], value=[], unwrapped=[], reference=[]))
     # the wrapped values explain where the jumps of the sawtooth come from
-    fig.scatter(x="s", y="value", source=source, size=5, color=color, alpha=0.35,
-                legend_label="wrapped (±π)")
-    fig.line(x="s", y="unwrapped", source=source, color=color, line_width=2,
-             legend_label="unwrapped")
-    fig.line(x="s", y="reference", source=source, color=color, line_width=1.5,
-             line_dash="dotted", line_alpha=0.35,
-             legend_label="fitted (t = 1)")
+    wrapped = fig.scatter(x="s", y="value", source=source, size=5, color=color,
+                          alpha=0.35, legend_label="wrapped (±π)")
+    wrapped.name = "phase_wrapped"
+    unwrapped = fig.line(x="s", y="unwrapped", source=source, color=color,
+                         line_width=2, legend_label="unwrapped")
+    unwrapped.name = "phase_unwrapped"
+    reference = fig.line(x="s", y="reference", source=source, color=color,
+                         line_width=1.5, line_dash="dotted", line_alpha=0.35,
+                         legend_label="fitted (t = 1)")
+    reference.name = "phase_reference"
     fig.legend.location = "top_left"
     fig.legend.click_policy = "hide"
     fig.xaxis.axis_label = "x"
@@ -280,13 +288,16 @@ def create_quadrature_figure(x_range: Range1d | None = None,
         options["y_range"] = y_range
     fig = figure(**options)
     source = ColumnDataSource(dict(s=[], real=[], imag=[], reference=[]))
-    fig.line(x="s", y="real", source=source, color="#1f77b4", line_width=2,
-             legend_label="Re(φ)")
-    fig.line(x="s", y="imag", source=source, color="#ff7f0e", line_width=2,
-             legend_label="Im(φ)")
-    fig.line(x="s", y="reference", source=source, color="#ff7f0e", line_width=1.5,
-             line_dash="dotted", line_alpha=0.35,
-             legend_label="fitted Im(φ) (t = 1)")
+    real = fig.line(x="s", y="real", source=source, color="#1f77b4", line_width=2,
+                    legend_label="Re(φ)")
+    real.name = "quad_real"
+    imag = fig.line(x="s", y="imag", source=source, color="#ff7f0e", line_width=2,
+                    legend_label="Im(φ)")
+    imag.name = "quad_imag"
+    reference = fig.line(x="s", y="reference", source=source, color="#ff7f0e",
+                         line_width=1.5, line_dash="dotted", line_alpha=0.35,
+                         legend_label="fitted Im(φ) (t = 1)")
+    reference.name = "quad_reference"
     # three-column legend, centered outside the frame above the plot
     fig.legend.ncols = 3
     fig.legend.orientation = "horizontal"
@@ -398,13 +409,16 @@ def create_direction_figure(x_range: Range1d | None = None, height: int = 420,
     # would recompute it client-side and ignore the application's writes)
     fig = figure(**options, y_range=Range1d(-1.0, 1.0))
     source = ColumnDataSource(dict(s=[], value=[], reference=[]))
-    fig.line(x="s", y="reference", source=source, color="#8430ce", line_width=1.5,
-             line_dash="dotted", line_alpha=0.35)
-    fig.line(x="s", y="value", source=source, color="#8430ce", line_width=2)
+    reference_line = fig.line(x="s", y="reference", source=source, color="#8430ce",
+                              line_width=1.5, line_dash="dotted", line_alpha=0.35)
+    reference_line.name = "direction_reference"
+    wave = fig.line(x="s", y="value", source=source, color="#8430ce", line_width=2)
+    wave.name = "direction_wave"
     arrow = Arrow(x_start=0.35, y_start=0.0, x_end=0.65, y_end=0.0,
                   line_color="#8430ce", line_width=3,
                   end=NormalHead(size=16, fill_color="#8430ce", line_color="#8430ce"),
                   start=None)
+    arrow.name = "direction_arrow"
     fig.add_layout(arrow)
     fig.xaxis.axis_label = "x"
     fig.yaxis.axis_label = "contribution"

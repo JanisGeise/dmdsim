@@ -13,8 +13,9 @@ from bokeh.application import Application
 from bokeh.server.callbacks import PeriodicCallback
 from bokeh.application.handlers import FunctionHandler
 from bokeh.models import (Button, Column, Div, GlobalInlineStyleSheet,
-                          InlineStyleSheet, Label, Range1d, Select, Slider,
-                          Spinner, Switch, TabPanel, Tabs, Toggle, Tooltip)
+                          InlineStyleSheet, Label, Model, Range1d, Select,
+                          Slider, Spinner, Switch, TabPanel, Tabs, Toggle,
+                          Tooltip, UIElement)
 from tornado.ioloop import PeriodicCallback as TornadoPeriodicCallback
 
 from dmdsim.core.engine import fit_dmd
@@ -29,10 +30,14 @@ from dmdsim.app.figures import (create_direction_figure, create_eigenvalue_figur
                                 create_prediction_probe_figure, create_quadrature_figure,
                                 create_signal_curve_figure, create_space_time_figure,
                                 create_spectrum_figure, create_time_curves_figure)
-from dmdsim.app.styling import (PAIR_PALETTE, PAIR_PALETTE_DARK, THEMES, header,
-                                header_styles, halfplane_colors, hint, hint_styles,
-                                info_box, info_styles, page_css, step_colors,
-                                style_figure, tab_css, theme_colors)
+from dmdsim.app.styling import (PAIR_PALETTE, PAIR_PALETTE_DARK, THEMES,
+                                accent_button_styles, button_styles, header,
+                                header_styles, halfplane_colors, hint,
+                                hint_styles, info_box, info_styles,
+                                input_stylesheet, page_css,
+                                primary_button_styles, slider_stylesheet,
+                                step_colors, style_figure, switch_styles,
+                                tab_css, theme_colors)
 
 # keep the flowTorch info messages out of the application output
 logging.getLogger("flowtorch").setLevel(logging.WARNING)
@@ -245,7 +250,7 @@ class DMDPlayground:
         self._pair_boxes: list[tuple[Column, int]] = []
         self._locked_edit_indices: set[int] = set()
         self._drag_cache: tuple[np.ndarray, np.ndarray] = (np.array([]), np.array([]))
-        self._themed_divs: list[tuple[Div, str, str]] = []
+        self._themed_divs: list[tuple[UIElement, str, str]] = []
         # theme stylesheets (created once; a theme switch updates their css)
         self._page_sheet = GlobalInlineStyleSheet(css=page_css(self._theme))
         self._tab_sheet = InlineStyleSheet(css=tab_css(self._theme, vertical=True))
@@ -320,20 +325,16 @@ class DMDPlayground:
                                                "button (stale views are marked in the "
                                                "info box below)")
         self._run_button = Button(label="Run DMD", button_type="primary", width=160)
-        self._run_button.styles = {
-            "background-color": step_colors("setup")[1],
-            "color": "#ffffff",
-            "border": "none",
-            "border-radius": "6px",
-            "font-weight": "500",
-        }
+        self._themed(self._run_button, "btn_primary")
         # reset buttons: panel 1 restores the default signal parameters, panels
         # 2-6 restore the fitted DMD values (the layout places one per panel)
         self._reset_signal_button = Button(label="↺ reset parameters", width=170)
+        self._themed(self._reset_signal_button, "btn_default")
         self._reset_fit_buttons: dict[str, Button] = {}
         for key in ("eigen", "spectrum", "modes", "recon", "predict"):
             self._reset_fit_buttons[key] = Button(label="↺ reset to DMD fit",
                                                   width=170)
+            self._themed(self._reset_fit_buttons[key], "btn_default")
         self._status_div = info_box()
         # interactive elements of the quantity views
         self._mode_slider = Slider(title="eigenvalue number", start=0, end=0, value=0,
@@ -411,6 +412,12 @@ class DMDPlayground:
         self._predict_div = info_box()
         self._predict_div.width = 700
         self._themed(self._predict_div, "info12")
+        # play/lock toggles render a default button surface, which the plain
+        # widget custom properties cannot reach (the .bk-btn paints over them)
+        for toggle in (self._play_toggle, self._signal_play_toggle,
+                       self._eigen_play_toggle, self._lock_toggle,
+                       self._modes_play_toggle, self._predict_play_toggle):
+            self._themed(toggle, "btn_default")
 
     def _build_figures(self) -> None:
         """
@@ -540,11 +547,6 @@ class DMDPlayground:
         workflow_rows = []
         for button, (name, description, target) in zip(buttons, descriptions):
             button.on_click(self._make_goto(target))
-            _, accent = step_colors(step_for_panel[target], mode)
-            button.styles = {"background-color": accent,
-                             "color": theme_colors(mode)["page_bg"],
-                             "border": "none", "border-radius": "6px",
-                             "font-weight": "500"}
             self._themed(button, "btn", step_for_panel[target])
             workflow_rows.append(row(
                 name_div := Div(text=f"<b>{name}</b>", width=170),
@@ -676,22 +678,23 @@ class DMDPlayground:
         # the root is added to the document by __init__ AFTER the callbacks
         # are wired (bokeh's event subscription happens at attach time)
 
-    def _themed(self, div: Div, kind: str, step: str = "") -> None:
+    def _themed(self, element: UIElement, kind: str, step: str = "") -> None:
         """
-        Register a Div for theme-dependent restyling.
+        Register a UI element for theme-dependent restyling.
 
-        :param div: themed element
-        :type div: Div
+        :param element: themed element (Div or Button/Toggle)
+        :type element: UIElement
         :param kind: style kind; one of ``"header"``, ``"hint"``, ``"info12"``,
-            ``"info13"``, ``"app_title"``, ``"wf_name"``, ``"wf_desc"``, or
-            ``"btn"`` (with ``step`` selecting the accent)
+            ``"info13"``, ``"app_title"``, ``"wf_name"``, ``"wf_desc"``,
+            ``"btn"`` (accent button, with ``step`` selecting the accent),
+            ``"btn_default"``, or ``"btn_primary"``
         :type kind: str
         :param step: step key for kinds that use a step accent, defaults to ""
         :type step: str, optional
         :return: None
         :rtype: None
         """
-        self._themed_divs.append((div, kind, step))
+        self._themed_divs.append((element, kind, step))
 
     def _themed_header(self, text: str, step: str) -> Div:
         """
@@ -793,26 +796,31 @@ class DMDPlayground:
         colors = self._pair_colors()
         for box, index in self._pair_boxes:
             box.styles = {**box.styles, "border": f"2px solid {colors[index]}"}
-        for div, kind, step in self._themed_divs:
+        for element, kind, step in self._themed_divs:
             if kind == "header":
-                div.styles = header_styles(step, self._theme)
+                element.styles = header_styles(step, self._theme)
             elif kind == "hint":
-                div.styles = hint_styles(self._theme)
+                element.styles = hint_styles(self._theme)
             elif kind == "info12":
-                div.styles = info_styles(self._theme, "12px")
+                element.styles = info_styles(self._theme, "12px")
             elif kind == "info13":
-                div.styles = info_styles(self._theme, "13px")
+                element.styles = info_styles(self._theme, "13px")
             elif kind == "app_title":
-                div.styles = {"color": theme["text"], "font-size": "15px",
-                              "padding": "8px 6px"}
+                element.styles = {"color": theme["text"], "font-size": "15px",
+                                  "padding": "8px 6px"}
             elif kind == "wf_name":
-                div.styles = {"color": theme["accents"][step], "font-weight": "600"}
+                element.styles = {"color": theme["accents"][step], "font-weight": "600"}
             elif kind == "wf_desc":
-                div.styles = {"color": theme["text"], "font-size": "12px"}
+                element.styles = {"color": theme["text"], "font-size": "12px"}
             elif kind == "btn":
-                div.styles = {"background-color": theme["accents"][step],
-                              "color": theme["page_bg"], "border": "none",
-                              "border-radius": "6px", "font-weight": "500"}
+                # accent buttons (workflow "Open") consume bokeh's button
+                # custom properties; plain inline styles never reach the
+                # .bk-btn surface inside the widget's shadow root
+                element.styles = accent_button_styles(self._theme, step)
+            elif kind == "btn_default":
+                element.styles = button_styles(self._theme)
+            elif kind == "btn_primary":
+                element.styles = primary_button_styles(self._theme)
         # recreate the stylesheets and re-attach them: a GlobalInlineStyleSheet
         # is injected into the page only once, so updating its css alone does
         # not re-theme the page
@@ -824,16 +832,47 @@ class DMDPlayground:
         self._layout_root.stylesheets = [self._page_sheet]
         self._tabs.stylesheets = [self._tab_sheet]
         self._mode_tabs.stylesheets = [self._mode_tab_sheet]
-        # bokeh widgets theme via CSS custom properties that inherit into their
-        # shadow roots; set them per widget (accent-styled buttons are excluded)
+        # theme every widget currently in the layout (doc.models would be empty
+        # at the initial call — the root is only added to the document later)
+        for model in self._layout_root.references():
+            self._style_widget(model)
+
+    def _style_widget(self, model: Model) -> None:
+        """
+        Apply the current theme to one widget model.
+
+        Bokeh widgets theme via CSS custom properties that inherit into their
+        shadow roots; buttons/toggles are excluded — their ``.bk-btn`` surface
+        consumes the ``--default*``/``--primary*`` families and is themed
+        through the btn kinds of the themed registry. Input widgets additionally
+        need a shadow-root stylesheet: the browser UA stylesheet forces a black
+        text color on form controls, and sliders need one for the nouislider
+        track and handle.
+
+        :param model: widget model to style (no-op for other models)
+        :type model: Model
+        :return: None
+        :rtype: None
+        """
+        if not isinstance(model, (Spinner, Select, Slider, Switch)):
+            return
+        theme = THEMES[self._theme]
         widget_styles = {"--background-color": theme["box_bg"],
                          "--surface-background-color": theme["box_bg"],
                          "--color": theme["text"],
                          "--hover-color": theme["tab_hover_bg"],
                          "--disabled-color": theme["muted"]}
-        for model in list(self._doc.models):
-            if isinstance(model, (Spinner, Select, Slider, Toggle, Switch)):
-                model.styles = widget_styles
+        if isinstance(model, Switch):
+            model.styles = {**widget_styles, **switch_styles(self._theme)}
+        elif isinstance(model, Slider):
+            model.styles = widget_styles
+            model.bar_color = theme["slider_connect"]
+            model.stylesheets = [InlineStyleSheet(
+                css=slider_stylesheet(self._theme))]
+        else:
+            model.styles = widget_styles
+            model.stylesheets = [InlineStyleSheet(
+                css=input_stylesheet(self._theme))]
 
     def _on_theme_switch(self, attr: str, old: bool, new: bool) -> None:
         """
@@ -974,7 +1013,8 @@ class DMDPlayground:
             result.sort(by=self._sort_select.value)
         except (AssertionError, IndexError, RuntimeError, ValueError) as error:
             logger.exception("The DMD fit failed")
-            self._status_div.text = (f"<span style='color:#c5221f'><b>the DMD fit "
+            error_color = theme_colors(self._theme)["line_error"]
+            self._status_div.text = (f"<span style='color:{error_color}'><b>the DMD fit "
                                      f"failed:</b> {error}</span>")
             return
         self._signal = signal
@@ -1764,6 +1804,9 @@ class DMDPlayground:
                             start=0.0, end=1.0, value=float(self._mode_weights[index]),
                             step=0.01, width=258)
             slider.on_change("value", partial(self._on_weight_change, index=index))
+            # rebuilt per fit: apply the current theme right away (a theme
+            # switch would only reach them on the next toggle otherwise)
+            self._style_widget(slider)
             sliders.append(slider)
             self._weight_sliders.append(slider)
             self._weight_slider_by_mode[index] = slider

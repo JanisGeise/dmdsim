@@ -149,13 +149,14 @@ Editing semantics (used by the GUI and available in the core):
 | Watchdog server shutdown | Bokeh's built-in session cleanup job never fires when the io loop is managed manually (Tornado 6.6 binds periodic jobs to `IOLoop.current()` at start time, not to the server's private loop); the app therefore runs its own watchdog that stops the server ~2 s after the last session disconnects |
 | `Tabs(tabs_location="left")` + Start panel | the sidebar holds a Start landing tab (DMD in a nutshell + workflow navigation) followed by the numbered steps; panels stay alive while hidden |
 | Pair colors across views | each conjugate eigenvalue pair shares one categorical color (`PAIR_PALETTE`, brighter `PAIR_PALETTE_DARK` in dark mode) so a physical mode is traceable across eigenvalue plane, λᵗ dynamics, spectrum, and reconstruction; unpaired modes are gray |
-| In-place theming | light/dark themes are applied without rebuilding: figures/Divs are restyled from `THEMES` and the stored stylesheets' `css` strings are regenerated. `doc.clear()` is forbidden (it wipes session callbacks); a `GlobalInlineStyleSheet` is injected once, so theme switches **recreate and re-attach** the stylesheet objects |
+| In-place theming | light/dark themes are applied without rebuilding: figures/Divs are restyled from `THEMES` and the stored stylesheets' `css` strings are regenerated. `doc.clear()` is forbidden (it wipes session callbacks); a `GlobalInlineStyleSheet` is injected once, so theme switches **recreate and re-attach** the stylesheet objects. Widget surfaces live inside shadow DOM: they are themed via CSS custom properties on the model plus per-widget shadow-root stylesheets (buttons via the `--default*`/`--primary*` families, form-control text and sliders via `stylesheets`, slider fill via `bar_color`) — see `styling.py` |
 | Editing semantics | dragged eigenvalues and |b| scale edits apply to the current fit and are fed back to the reconstruction live; unit-circle-locked drags are temporary (reset on eigenvalue selection); a refit restores the fitted values |
 
 ## Roadmap position
 
 See `PLAN.md` for milestones. M0 (setup), M1 (core), M2 (GUI), the GUI revise
 phase (M2R), M3 (interactive eigenvalue editing) and M4 (UX revision: start
-panel, light/dark themes, beginner labels) are done. The dark-mode polish and
-real 2D OpenFOAM data (M5) are deferred in the backlog; DMD variants and
-session save/load are further backlog items.
+panel, light/dark themes, beginner labels) are done. The dark-mode revision
+(widget shadow-DOM theming: buttons, input text, sliders, switches, figure
+reference colors) is done; real 2D OpenFOAM data (M5) is deferred in the
+backlog; DMD variants and session save/load are further backlog items.
